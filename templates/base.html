@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}Family Secret Santa{% endblock %}</title>
+<style>
+  :root{--bg:#fbf6ee;--ink:#2b2a28;--muted:#756f66;--green:#1f5d3a;--red:#b3282d;--card:#fff;--line:#e6dccb;--soft:#f3ece0}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+  header.top{background:var(--green);color:#fff;padding:14px 20px;display:flex;justify-content:space-between;align-items:center;gap:12px}
+  header.top a,header.top button{color:#fff}
+  .brand{font-weight:700;font-size:1.15rem;text-decoration:none}
+  main{max-width:880px;margin:0 auto;padding:20px 16px 60px}
+  h1{font-size:1.6rem;margin:.2em 0 .6em} h2{font-size:1.2rem;margin:0 0 .6em}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px;margin:0 0 18px}
+  .muted{color:var(--muted);font-size:.92rem}
+  .flash{padding:10px 14px;border-radius:8px;margin:0 0 14px}
+  .flash.ok{background:#e3f1e8;color:#14472b} .flash.error{background:#fbe5e5;color:#7d1b1f}
+  label{display:block;font-weight:600;font-size:.9rem;margin:10px 0 4px}
+  input[type=text],input[type=url],input[type=email],input[type=password],select,textarea{width:100%;padding:9px 11px;border:1px solid #cfc3ad;border-radius:8px;font:inherit;background:#fff}
+  textarea{min-height:60px}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end} .row>*{flex:1 1 160px}
+  .check{display:flex;gap:8px;align-items:center;font-weight:400;margin:8px 0} .check input{width:auto}
+  .btn{display:inline-block;background:var(--green);color:#fff;border:0;border-radius:8px;padding:9px 16px;font:inherit;font-weight:600;cursor:pointer;text-decoration:none}
+  .btn.red{background:var(--red)} .btn.ghost{background:transparent;color:var(--green);border:1px solid var(--green)}
+  .btn.small{padding:5px 10px;font-size:.85rem} .btn:disabled{opacity:.45;cursor:not-allowed}
+  header.top .btn.ghost{color:#fff;border-color:#fff}
+  table{width:100%;border-collapse:collapse} th,td{text-align:left;padding:8px 6px;border-bottom:1px solid var(--line);vertical-align:middle}
+  th{font-size:.8rem;text-transform:uppercase;letter-spacing:.04em;color:var(--muted)}
+  .pill{display:inline-block;background:var(--soft);border-radius:99px;padding:2px 10px;font-size:.82rem}
+  .pill.green{background:#e3f1e8;color:#14472b}
+  .item{display:flex;gap:14px;border:1px solid var(--line);border-radius:10px;padding:12px;margin:10px 0;background:#fff}
+  .item.bought{opacity:.55}
+  .thumb{flex:0 0 96px;width:96px;height:96px;border-radius:8px;background:var(--soft);object-fit:contain;display:flex;align-items:center;justify-content:center;font-size:2rem}
+  .item .body{flex:1;min-width:0} .item .title{font-weight:700;overflow-wrap:anywhere}
+  .price{color:var(--red);font-weight:700}
+  .actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;align-items:center} .actions form{margin:0}
+  details>summary{cursor:pointer;color:var(--green);font-weight:600}
+  .reveal{background:var(--soft);border-radius:10px;padding:14px;text-align:center}
+  .reveal summary{font-size:1.1rem}
+  .reveal .name{font-size:1.8rem;font-weight:800;color:var(--red);margin:8px 0}
+  .linkbox{display:flex;gap:6px;align-items:center} .linkbox input{font-size:.8rem}
+  @media(max-width:520px){.thumb{flex-basis:72px;width:72px;height:72px}}
+</style>
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="{{ url_for('index') }}">🎁 Family Secret Santa</a>
+  <nav>{% block nav %}{% endblock %}</nav>
+</header>
+<main>
+  {% with msgs = get_flashed_messages(with_categories=true) %}
+    {% for cat, msg in msgs %}<div class="flash {{ cat }}">{{ msg }}</div>{% endfor %}
+  {% endwith %}
+  {% block content %}{% endblock %}
+</main>
+<script>
+  document.addEventListener('click', function(e){
+    var b = e.target.closest('[data-copy]'); if(!b) return;
+    var v = b.getAttribute('data-copy');
+    (navigator.clipboard ? navigator.clipboard.writeText(v) : Promise.reject()).catch(function(){
+      var t=document.createElement('textarea'); t.value=v; document.body.appendChild(t); t.select(); document.execCommand('copy'); t.remove();
+    });
+    var o=b.textContent; b.textContent='Copied!'; setTimeout(function(){b.textContent=o},1400);
+  });
+</script>
+</body>
+</html>

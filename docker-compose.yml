@@ -1,0 +1,15 @@
+services:
+  santa:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      # Your organizer password. Change it!
+      ADMIN_PASSWORD: "change-me"
+      # Public address people will use. Personal links are built from this.
+      # BASE_URL: "https://santa.example.com"
+      # Set to 1 once you serve the site over HTTPS.
+      # COOKIE_SECURE: "1"
+    volumes:
+      - ./data:/app/data   # database lives here; back this folder up

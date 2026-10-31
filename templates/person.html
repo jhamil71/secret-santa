@@ -1,0 +1,142 @@
+{% extends "base.html" %}
+{% block title %}{{ me.name }} · Secret Santa{% endblock %}
+
+{% macro item_fields(item=None) %}
+  <label>Link to the gift</label>
+  <input type="url" name="url" class="f-url" value="{{ item.url if item and item.url else '' }}" placeholder="Paste a product link, e.g. https://…">
+  <div class="muted f-status"></div>
+  <div class="row">
+    <div><label>Name</label><input type="text" name="title" class="f-title" value="{{ item.title if item else '' }}" maxlength="200" placeholder="Fills in from the link"></div>
+    <div style="flex:0 1 140px"><label>Price</label><input type="text" name="price" class="f-price" value="{{ item.price if item and item.price else '' }}" maxlength="30" placeholder="$25.00"></div>
+  </div>
+  <label>Note (size, color, anything helpful)</label>
+  <input type="text" name="note" value="{{ item.note if item and item.note else '' }}" maxlength="500">
+  <details style="margin-top:8px"><summary>Picture</summary>
+    <label>Image link</label>
+    <input type="url" name="image" class="f-image" value="{{ item.image if item and item.image else '' }}" placeholder="Fills in from the link; paste your own if it's missing">
+  </details>
+{% endmacro %}
+
+{% macro thumb(item) %}
+  {% if item.image %}<img class="thumb" src="{{ item.image }}" alt="" loading="lazy" referrerpolicy="no-referrer">
+  {% else %}<div class="thumb">🎁</div>{% endif %}
+{% endmacro %}
+
+{% block content %}
+<h1>Hi {{ me.name }} 👋</h1>
+
+{% if budget or event_note %}
+<div class="card">
+  {% if budget %}<div><strong>Budget:</strong> {{ budget }}</div>{% endif %}
+  {% if event_note %}<div>{{ event_note }}</div>{% endif %}
+</div>
+{% endif %}
+
+<div class="card" id="buying">
+  <h2>🤫 Who you're buying for</h2>
+  {% if target %}
+    <details class="reveal">
+      <summary>Tap to reveal your person</summary>
+      <div class="name">{{ target.name }}</div>
+      <div class="muted">Shh, keep it secret!</div>
+    </details>
+    <h2 style="margin-top:18px">{{ target.name }}'s wish list</h2>
+    {% if target_items %}
+      {% for it in target_items %}
+      <div class="item {{ 'bought' if it.purchased }}">
+        {{ thumb(it) }}
+        <div class="body">
+          <div class="title">{{ it.title }}</div>
+          {% if it.price %}<div class="price">{{ it.price }}</div>{% endif %}
+          {% if it.note %}<div class="muted">{{ it.note }}</div>{% endif %}
+          <div class="actions">
+            {% if it.url %}<a class="btn small" href="{{ it.url }}" target="_blank" rel="noopener noreferrer">View / buy ↗</a>{% endif %}
+            <form method="post" action="{{ url_for('toggle_purchased', token=token, item_id=it.id) }}">
+              <input type="hidden" name="csrf" value="{{ csrf }}">
+              <button class="btn ghost small" type="submit">{{ '✓ Bought (undo)' if it.purchased else 'Mark as bought' }}</button>
+            </form>
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+      <p class="muted">"Bought" marks are only visible to you.</p>
+    {% else %}
+      <p class="muted">{{ target.name }} hasn't added anything to their wish list yet. Check back soon.</p>
+    {% endif %}
+  {% elif drawn %}
+    <p class="muted">Names were drawn, but you weren't part of the draw. Let the organizer know.</p>
+  {% else %}
+    <p class="muted">Names haven't been drawn yet. In the meantime, add a few ideas to your own wish list below!</p>
+  {% endif %}
+</div>
+
+<div class="card" id="mine">
+  <h2>🎁 My wish list</h2>
+  <p class="muted">Only the person who draws your name can see this. You won't see whether anything has been bought.</p>
+
+  {% for it in mine %}
+  <div class="item">
+    {{ thumb(it) }}
+    <div class="body">
+      <div class="title">{{ it.title }}</div>
+      {% if it.price %}<div class="price">{{ it.price }}</div>{% endif %}
+      {% if it.note %}<div class="muted">{{ it.note }}</div>{% endif %}
+      {% if it.url %}<div class="muted"><a href="{{ it.url }}" target="_blank" rel="noopener noreferrer">Link ↗</a></div>{% endif %}
+      <div class="actions">
+        <details style="flex:1 1 100%">
+          <summary>Edit</summary>
+          <form method="post" action="{{ url_for('edit_item', token=token, item_id=it.id) }}">
+            <input type="hidden" name="csrf" value="{{ csrf }}">
+            {{ item_fields(it) }}
+            <p><button class="btn small" type="submit">Save changes</button></p>
+          </form>
+        </details>
+        <form method="post" action="{{ url_for('delete_item', token=token, item_id=it.id) }}" onsubmit="return confirm('Remove this from your list?')">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <button class="btn red small" type="submit">Remove</button>
+        </form>
+      </div>
+    </div>
+  </div>
+  {% else %}
+  <p class="muted">Nothing yet. Add your first idea below.</p>
+  {% endfor %}
+
+  <h2 style="margin-top:22px">Add a gift idea</h2>
+  <form method="post" action="{{ url_for('add_item', token=token) }}" id="add-form">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    {{ item_fields() }}
+    <p><button class="btn" type="submit">Add to my list</button></p>
+  </form>
+</div>
+
+<script>
+(function(){
+  var form = document.getElementById('add-form');
+  var url = form.querySelector('.f-url'), title = form.querySelector('.f-title'),
+      price = form.querySelector('.f-price'), image = form.querySelector('.f-image'),
+      status = form.querySelector('.f-status');
+  var last = '';
+  function lookup(){
+    var v = url.value.trim();
+    if(!v || v === last) return;
+    last = v;
+    status.textContent = 'Looking up the product…';
+    fetch({{ url_for('preview', token=token)|tojson }} + '?url=' + encodeURIComponent(v))
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        if(d.title && !title.value) title.value = d.title;
+        if(d.price && !price.value) price.value = d.price;
+        if(d.image && !image.value) image.value = d.image;
+        var got = [d.title && 'name', d.price && 'price', d.image && 'picture'].filter(Boolean);
+        status.textContent = got.length
+          ? 'Found: ' + got.join(', ') + '. Check it looks right.'
+          : (d.error || 'Nothing found. Fill in the details by hand.');
+      })
+      .catch(function(){ status.textContent = 'Lookup failed. Fill in the details by hand.'; });
+  }
+  url.addEventListener('change', lookup);
+  url.addEventListener('paste', function(){ setTimeout(lookup, 50); });
+})();
+</script>
+{% endblock %}
