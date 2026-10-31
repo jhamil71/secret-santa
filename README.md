@@ -22,7 +22,14 @@ pip install -r requirements.txt
 ADMIN_PASSWORD=choose-one python app.py      # http://localhost:8000
 ```
 
-If you don't set `ADMIN_PASSWORD`, one is generated on first start and saved in `data/admin_password.txt`.
+If you don't set `ADMIN_PASSWORD`, one is generated on first start, printed in the terminal, and saved in `data/admin_password.txt`.
+
+### From your phone (GitHub Codespaces)
+
+1. On github.com, open this repo, tap **Code → Codespaces → Create codespace on main**.
+2. When the terminal appears, run `python app.py` and note the generated organizer password it prints.
+3. Open the **Ports** tab, find port 8000, and open it in the browser. To try personal links on other devices, set the port's visibility to **Public** (only while testing).
+4. Stop the codespace when done so it stops using your free allowance.
 
 ## How a season goes
 
@@ -39,6 +46,7 @@ If you don't set `ADMIN_PASSWORD`, one is generated on first start and saved in 
 | `ADMIN_PASSWORD` | Organizer password |
 | `BASE_URL` | Public address used in personal links, e.g. `https://santa.example.com` |
 | `COOKIE_SECURE=1` | Set once you serve over HTTPS |
+| `TRUST_PROXY=1` | Set when behind a reverse proxy or port forwarder, so links use its address |
 | `DATA_DIR` | Where the database lives (default `./data`) |
 
 ## Good to know

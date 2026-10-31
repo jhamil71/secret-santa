@@ -49,6 +49,11 @@ app.config.update(
     PERMANENT_SESSION_LIFETIME=60 * 60 * 24 * 30,
 )
 
+if os.environ.get("TRUST_PROXY") == "1":
+    # Behind a reverse proxy / port forwarder: use its host and https so links come out right.
+    from werkzeug.middleware.proxy_fix import ProxyFix
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS people(
     id INTEGER PRIMARY KEY, name TEXT NOT NULL, email TEXT, token TEXT NOT NULL UNIQUE);

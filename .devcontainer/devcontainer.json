@@ -1,0 +1,12 @@
+{
+  "name": "Family Secret Santa",
+  "image": "mcr.microsoft.com/devcontainers/python:3.12",
+  "postCreateCommand": "pip install -r requirements.txt pytest",
+  "containerEnv": {
+    "TRUST_PROXY": "1"
+  },
+  "forwardPorts": [8000],
+  "portsAttributes": {
+    "8000": { "label": "Secret Santa", "onAutoForward": "openBrowser" }
+  }
+}
