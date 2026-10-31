@@ -3,9 +3,9 @@
 A small self-hosted gift exchange (think Elfster, but yours).
 
 - **Rules for the draw**: couples can't draw each other, no one draws the same person as last year, no one draws themselves, and (optionally) no direct swaps.
-- **Wish lists**: paste a product link and the name, picture and price are filled in automatically (you can edit them, or add your own picture link when a store blocks previews).
+- **Wish lists**: paste a product link and the name, picture and price are filled in automatically (you can edit them, or add your own picture link when a store blocks previews). Everyone's list is visible to the whole family, and anyone can tap **I bought this** on someone else's gift so nobody doubles up. The mark shows as an anonymous "Already bought", and the list's owner never sees it.
 - **Organizer controls**: add people, set rules, draw names, reset or start next year. The organizer can't see who has whom, so you stay surprised too.
-- **Personal links**: no accounts. Each person gets a private link.
+- **Personal links**: no accounts. Each person gets a private link. Enter mobile numbers and tap **Text link** next to each name: your own messages app opens with the link ready to send (nothing is sent automatically, and no texting service is needed).
 
 ## Run it
 
@@ -33,9 +33,9 @@ If you don't set `ADMIN_PASSWORD`, one is generated on first start, printed in t
 
 ## How a season goes
 
-1. Log in as organizer and add everyone (including yourself, ticking "This is me").
+1. Log in as organizer and add everyone, including yourself, with mobile numbers.
 2. Add couples under **Who can't draw whom**, and enter last year's matches.
-3. Send each person their link (Copy link, or Email if you entered an address).
+3. Tap **Text link** next to each person (or Copy link). Links work before the draw, so people can start their wish lists right away. Don't open other people's links yourself, since a link shows who that person drew.
 4. When everyone is in, press **Draw names**. Everyone opens their link to see who they drew and that person's wish list.
 5. Next season, press **Start next year**. This year's matches are archived and avoided in the next draw; wish lists are kept.
 

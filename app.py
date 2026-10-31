@@ -56,7 +56,7 @@ if os.environ.get("TRUST_PROXY") == "1":
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS people(
-    id INTEGER PRIMARY KEY, name TEXT NOT NULL, email TEXT, token TEXT NOT NULL UNIQUE);
+    id INTEGER PRIMARY KEY, name TEXT NOT NULL, phone TEXT, email TEXT, token TEXT NOT NULL UNIQUE);
 CREATE TABLE IF NOT EXISTS exclusions(
     giver_id INTEGER NOT NULL REFERENCES people(id) ON DELETE CASCADE,
     receiver_id INTEGER NOT NULL REFERENCES people(id) ON DELETE CASCADE,
@@ -73,19 +73,29 @@ CREATE TABLE IF NOT EXISTS items(
     id INTEGER PRIMARY KEY,
     person_id INTEGER NOT NULL REFERENCES people(id) ON DELETE CASCADE,
     title TEXT NOT NULL, url TEXT, price TEXT, image TEXT, note TEXT,
-    purchased INTEGER NOT NULL DEFAULT 0,
+    purchased_by INTEGER REFERENCES people(id) ON DELETE SET NULL,
     created TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
 CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT);
 """
 DEFAULTS = {
     "year": str(datetime.now().year), "budget": "", "event_note": "",
-    "avoid_swaps": "1", "avoid_last": "1", "admin_person_id": "", "drawn_at": "",
+    "avoid_swaps": "1", "avoid_last": "1", "drawn_at": "",
 }
 
 
 def init_db():
     with sqlite3.connect(DB_PATH) as c:
         c.executescript(SCHEMA)
+        # Upgrade databases created by earlier versions.
+        if "phone" not in {r[1] for r in c.execute("PRAGMA table_info(people)")}:
+            c.execute("ALTER TABLE people ADD COLUMN phone TEXT")
+        icols = {r[1] for r in c.execute("PRAGMA table_info(items)")}
+        if "purchased_by" not in icols:
+            c.execute("ALTER TABLE items ADD COLUMN purchased_by INTEGER "
+                      "REFERENCES people(id) ON DELETE SET NULL")
+            if "purchased" in icols:
+                c.execute("UPDATE items SET purchased_by=(SELECT giver_id FROM assignments "
+                          "WHERE receiver_id=items.person_id) WHERE purchased=1")
         for k, v in DEFAULTS.items():
             c.execute("INSERT OR IGNORE INTO settings(key, value) VALUES (?, ?)", (k, v))
 
@@ -127,6 +137,17 @@ def clean_text(s, limit):
     return (s or "").strip()[:limit]
 
 
+def clean_phone(s):
+    """Digits with an optional leading +, 7-15 digits. Returns None if it doesn't look like a number."""
+    s = (s or "").strip()
+    if not s or not re.fullmatch(r"\+?[\d\s().\-]+", s):
+        return None
+    digits = re.sub(r"\D", "", s)
+    if not 7 <= len(digits) <= 15:
+        return None
+    return ("+" if s.startswith("+") else "") + digits
+
+
 def clean_url(s):
     """Return a safe http(s) URL or None. (Blocks javascript: etc.)"""
     s = (s or "").strip()
@@ -152,6 +173,12 @@ def base_url():
 
 def person_link(token):
     return f"{base_url()}{url_for('person_page', token=token)}"
+
+
+def sms_text(name, token):
+    return (f"Hi {name}! Here's your private link for our family Secret Santa: {person_link(token)} "
+            "Add your wish list there, and once names are drawn you'll see who you're buying for. "
+            "Please keep this link to yourself!")
 
 
 @app.before_request
@@ -243,13 +270,11 @@ def admin():
 
     last = {r["giver_id"]: r["receiver_id"] for r in d.execute(
         "SELECT giver_id, receiver_id FROM history WHERE year=?", (year - 1,))}
-    me = get_setting("admin_person_id")
-    me_person = next((p for p in people if str(p["id"]) == me), None)
     return render_template(
         "admin.html", people=people, names=names, rules=rules, last=last, year=year,
         drawn=is_drawn(), drawn_at=get_setting("drawn_at"),
         settings={k: get_setting(k) for k in DEFAULTS},
-        me_person=me_person, link_for=person_link)
+        link_for=person_link, sms_text=sms_text)
 
 
 @app.post("/admin/people")
@@ -263,11 +288,14 @@ def add_person():
     if not name:
         flash("Please enter a name.", "error")
         return redirect(url_for("admin"))
-    cur = d.execute("INSERT INTO people(name, email, token) VALUES (?, ?, ?)",
-                    (name, clean_text(request.form.get("email"), 120) or None,
-                     secrets.token_urlsafe(12)))
-    if request.form.get("is_me"):
-        set_setting("admin_person_id", cur.lastrowid)
+    raw_phone = request.form.get("phone", "")
+    phone = clean_phone(raw_phone)
+    if raw_phone.strip() and not phone:
+        flash("That phone number doesn't look right. Use digits only, adding a country code like +1 if needed.", "error")
+        return redirect(url_for("admin"))
+    d.execute("INSERT INTO people(name, phone, email, token) VALUES (?, ?, ?, ?)",
+              (name, phone, clean_text(request.form.get("email"), 120) or None,
+               secrets.token_urlsafe(12)))
     d.commit()
     flash(f"Added {name}.", "ok")
     return redirect(url_for("admin"))
@@ -281,9 +309,25 @@ def delete_person(pid):
         flash("Reset the draw before removing someone.", "error")
         return redirect(url_for("admin"))
     d.execute("DELETE FROM people WHERE id=?", (pid,))
-    if get_setting("admin_person_id") == str(pid):
-        set_setting("admin_person_id", "")
     d.commit()
+    return redirect(url_for("admin"))
+
+
+@app.post("/admin/people/<int:pid>/edit")
+@admin_required
+def edit_person(pid):
+    """Fix a name, phone number or email. Allowed at any time (doesn't affect the draw)."""
+    name = clean_text(request.form.get("name"), 60)
+    raw_phone = request.form.get("phone", "")
+    phone = clean_phone(raw_phone)
+    if not name or (raw_phone.strip() and not phone):
+        flash("Needs a name, and a phone number made of digits (add +1 or similar if needed).", "error")
+        return redirect(url_for("admin"))
+    d = db()
+    d.execute("UPDATE people SET name=?, phone=?, email=? WHERE id=?",
+              (name, phone, clean_text(request.form.get("email"), 120) or None, pid))
+    d.commit()
+    flash(f"Saved {name}.", "ok")
     return redirect(url_for("admin"))
 
 
@@ -294,9 +338,6 @@ def save_settings():
     set_setting("event_note", clean_text(request.form.get("event_note"), 300))
     set_setting("avoid_swaps", "1" if request.form.get("avoid_swaps") else "0")
     set_setting("avoid_last", "1" if request.form.get("avoid_last") else "0")
-    me = request.form.get("admin_person_id", "")
-    if me == "" or db().execute("SELECT 1 FROM people WHERE id=?", (me,)).fetchone():
-        set_setting("admin_person_id", me)
     db().commit()
     flash("Settings saved.", "ok")
     return redirect(url_for("admin"))
@@ -411,7 +452,6 @@ def do_draw():
 def reset_draw():
     d = db()
     d.execute("DELETE FROM assignments")
-    d.execute("UPDATE items SET purchased=0")
     set_setting("drawn_at", "")
     d.commit()
     flash("Draw cleared. You can adjust the rules and draw again.", "ok")
@@ -430,7 +470,7 @@ def new_year():
     d.execute("INSERT OR REPLACE INTO history(year, giver_id, receiver_id) "
               "SELECT ?, giver_id, receiver_id FROM assignments", (year,))
     d.execute("DELETE FROM assignments")
-    d.execute("UPDATE items SET purchased=0")
+    d.execute("UPDATE items SET purchased_by=NULL")
     set_setting("year", year + 1)
     set_setting("drawn_at", "")
     d.commit()
@@ -451,16 +491,20 @@ def person_page(token):
     d = db()
     me = person_or_404(token)
     mine = d.execute("SELECT * FROM items WHERE person_id=? ORDER BY id", (me["id"],)).fetchall()
-    target, target_items = None, []
+    target = None
     row = d.execute("SELECT receiver_id FROM assignments WHERE giver_id=?", (me["id"],)).fetchone()
     if row:
         target = d.execute("SELECT * FROM people WHERE id=?", (row["receiver_id"],)).fetchone()
-        target_items = d.execute("SELECT * FROM items WHERE person_id=? ORDER BY id",
-                                 (target["id"],)).fetchall()
+    # Everyone's wish lists are public to the rest of the family.
+    items_by_person = {}
+    for it in d.execute("SELECT * FROM items WHERE person_id!=? ORDER BY id", (me["id"],)):
+        items_by_person.setdefault(it["person_id"], []).append(it)
+    others = [{"person": p, "gifts": items_by_person.get(p["id"], [])}
+              for p in d.execute("SELECT id, name FROM people WHERE id!=? ORDER BY LOWER(name)",
+                                 (me["id"],))]
     return render_template(
-        "person.html", me=me, token=token, mine=mine, target=target,
-        target_items=target_items, drawn=is_drawn(),
-        budget=get_setting("budget"), event_note=get_setting("event_note"))
+        "person.html", me=me, token=token, mine=mine, target=target, others=others,
+        drawn=is_drawn(), budget=get_setting("budget"), event_note=get_setting("event_note"))
 
 
 @app.get("/p/<token>/preview")
@@ -552,17 +596,25 @@ def delete_item(token, item_id):
 
 @app.post("/p/<token>/purchased/<int:item_id>")
 def toggle_purchased(token, item_id):
-    """The giver marks items on their recipient's list as bought (private to the giver)."""
+    """Anyone can mark an item on someone ELSE's list as bought; only they can undo it.
+
+    Others see an anonymous "Already bought" (so nobody learns who buys for whom),
+    and the list's owner never sees these marks.
+    """
     me = person_or_404(token)
     d = db()
-    row = d.execute(
-        "SELECT i.id FROM items i JOIN assignments a ON a.receiver_id=i.person_id "
-        "WHERE i.id=? AND a.giver_id=?", (item_id, me["id"])).fetchone()
-    if not row:
+    item = d.execute("SELECT * FROM items WHERE id=? AND person_id!=?", (item_id, me["id"])).fetchone()
+    if not item:
         abort(404)
-    d.execute("UPDATE items SET purchased = 1 - purchased WHERE id=?", (item_id,))
+    if item["purchased_by"] is None:
+        d.execute("UPDATE items SET purchased_by=? WHERE id=? AND purchased_by IS NULL",
+                  (me["id"], item_id))
+    elif item["purchased_by"] == me["id"]:
+        d.execute("UPDATE items SET purchased_by=NULL WHERE id=?", (item_id,))
+    else:
+        flash("Someone else already marked that one as bought.", "error")
     d.commit()
-    return redirect(url_for("person_page", token=token) + "#buying")
+    return redirect(url_for("person_page", token=token) + f"#p{item['person_id']}")
 
 
 if __name__ == "__main__":

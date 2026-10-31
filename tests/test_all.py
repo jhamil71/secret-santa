@@ -1,5 +1,6 @@
 import os
 import random
+import sqlite3
 import sys
 import tempfile
 
@@ -35,7 +36,6 @@ def test_draw_respects_all_rules_many_times():
 
 
 def test_draw_finds_solution_in_tight_case():
-    # 4 people, two couples: only a 4-cycle-ish pattern works
     forbidden = {0: {1}, 1: {0}, 2: {3}, 3: {2}}
     for seed in range(100):
         res = find_assignment([0, 1, 2, 3], forbidden, True, random.Random(seed))
@@ -44,7 +44,6 @@ def test_draw_finds_solution_in_tight_case():
 
 def test_draw_impossible_returns_none():
     assert find_assignment([0, 1, 2], {0: {1, 2}}) is None
-    # 3 people with swaps forbidden and one forced swap
     assert find_assignment([0, 1], {}, True) is None
 
 
@@ -88,9 +87,27 @@ def test_ssrf_blocked(url):
         check_public_url(url)
 
 
+# ---------- small helpers ----------
+def test_clean_phone():
+    f = app_module.clean_phone
+    assert f("(555) 123-4567") == "5551234567"
+    assert f("+1 555 123 4567") == "+15551234567"
+    assert f("") is None and f("12") is None and f("call me") is None
+    assert f("555-123-4567 ext 9") is None
+
+
+def test_clean_url_rejects_scripts():
+    f = app_module.clean_url
+    assert f("javascript:alert(1)") is None
+    assert f("https://javascript:alert(1)") is None
+    assert f("example.com/x") == "https://example.com/x"
+
+
 # ---------- app flow ----------
 @pytest.fixture()
-def client():
+def client(tmp_path, monkeypatch):
+    monkeypatch.setattr(app_module, "DB_PATH", str(tmp_path / "t.db"))
+    app_module.init_db()
     app_module.app.config["TESTING"] = True
     c = app_module.app.test_client()
     c.get("/")  # establish session + csrf
@@ -99,75 +116,130 @@ def client():
     return c
 
 
-def post(c, path, **data):
+def _csrf(c):
     with c.session_transaction() as s:
-        data["csrf"] = s["csrf"]
+        return s["csrf"]
+
+
+def post(c, path, **data):
+    data["csrf"] = _csrf(c)
     return c.post(path, data=data, follow_redirects=True)
+
+
+def rows():
+    d = sqlite3.connect(app_module.DB_PATH)
+    d.row_factory = sqlite3.Row
+    return d
 
 
 def test_full_flow(client, monkeypatch):
     names = ["Ann", "Bob", "Cara", "Dan", "Eve", "Fay"]
-    for n in names:
-        post(client, "/admin/people", name=n, is_me="1" if n == "Ann" else "")
-    d = app_module.sqlite3.connect(app_module.DB_PATH)
-    d.row_factory = app_module.sqlite3.Row
+    for i, n in enumerate(names):
+        post(client, "/admin/people", name=n, phone=f"(555) 100-000{i}")
+    d = rows()
     ids = {r["name"]: r["id"] for r in d.execute("SELECT * FROM people")}
     tokens = {r["name"]: r["token"] for r in d.execute("SELECT * FROM people")}
 
-    # couples (both ways) + a one-way rule
+    # text-link buttons carry the phone number and that person's private link
+    dash = client.get("/admin").data.decode()
+    assert "sms:5551000000?&amp;body=" in dash
+    assert tokens["Ann"] in dash and "Which person are you" not in dash
+
+    # couples (both ways) + a one-way rule + last year's matches
     post(client, "/admin/exclusions", a=ids["Ann"], b=ids["Bob"], both="1")
     post(client, "/admin/exclusions", a=ids["Cara"], b=ids["Dan"], both="1")
     post(client, "/admin/exclusions", a=ids["Eve"], b=ids["Fay"])
-    # last year: Ann->Cara, Cara->Ann
     post(client, "/admin/history", **{f"last_{ids['Ann']}": ids["Cara"], f"last_{ids['Cara']}": ids["Ann"]})
 
-    # wish list with stubbed preview
+    # Bob adds a gift from just a link (preview stubbed)
     monkeypatch.setattr(app_module, "fetch_preview", lambda u: {
         "ok": True, "title": "Cool Lamp", "image": "https://img.example/lamp.jpg", "price": "$45.00", "error": None})
     post(client, f"/p/{tokens['Bob']}/items", url="https://shop.example/lamp", title="", price="", image="", note="warm white")
 
-    rules_ok = 0
     for _ in range(60):
         r = post(client, "/admin/draw")
         assert b"Drawn" in r.data
-        rows = d.execute("SELECT giver_id, receiver_id FROM assignments").fetchall()
-        pairs = {(r["giver_id"], r["receiver_id"]) for r in rows}
+        pairs = {(x["giver_id"], x["receiver_id"]) for x in d.execute("SELECT * FROM assignments")}
         assert len(pairs) == 6 and len({b for _, b in pairs}) == 6
-        for a, b in [("Ann", "Bob"), ("Cara", "Dan"), ("Eve", "Fay")]:
+        for a, b in [("Ann", "Bob"), ("Bob", "Ann"), ("Cara", "Dan"), ("Dan", "Cara"),
+                     ("Eve", "Fay"), ("Ann", "Cara"), ("Cara", "Ann")]:
             assert (ids[a], ids[b]) not in pairs
-        for a, b in [("Bob", "Ann"), ("Dan", "Cara")]:
-            assert (ids[a], ids[b]) not in pairs
-        assert (ids["Ann"], ids["Cara"]) not in pairs and (ids["Cara"], ids["Ann"]) not in pairs
-        assert all((b, a) not in pairs for a, b in pairs)
-        assert all(a != b for a, b in pairs)
-        rules_ok += 1
+        assert all((b, a) not in pairs for a, b in pairs) and all(a != b for a, b in pairs)
         post(client, "/admin/reset")
-    assert rules_ok == 60
-
     post(client, "/admin/draw")
-    # whoever drew Bob sees the lamp with price and image; Bob's own page hides purchase state
-    giver_of_bob = d.execute("SELECT giver_id FROM assignments WHERE receiver_id=?", (ids["Bob"],)).fetchone()[0]
-    giver_name = next(n for n, i in ids.items() if i == giver_of_bob)
-    page = client.get(f"/p/{tokens[giver_name]}").data.decode()
-    assert "Cool Lamp" in page and "$45.00" in page and "https://img.example/lamp.jpg" in page
-    # admin cannot see matches on the dashboard
-    dash = client.get("/admin").data.decode()
-    assert "Bob's wish list" not in dash
 
-    # mark bought: only the giver may
+    # every OTHER family member sees Bob's gift, price and picture, whoever they drew
+    for n in names:
+        page = client.get(f"/p/{tokens[n]}").data.decode()
+        if n != "Bob":
+            assert "Cool Lamp" in page and "$45.00" in page and "https://img.example/lamp.jpg" in page
+            assert ">I bought this</button>" in page
+    # dashboard does not reveal the matches
+    assert "reveal your person" not in client.get("/admin").data.decode()
+
     item_id = d.execute("SELECT id FROM items").fetchone()[0]
-    other = next(n for n in names if n not in (giver_name,))
-    assert client.post(f"/p/{tokens[other]}/purchased/{item_id}",
-                       data={"csrf": _csrf(client)}).status_code == 404
-    post(client, f"/p/{tokens[giver_name]}/purchased/{item_id}")
-    assert d.execute("SELECT purchased FROM items").fetchone()[0] == 1
+
+    def bought_by():
+        return rows().execute("SELECT purchased_by FROM items WHERE id=?", (item_id,)).fetchone()[0]
+
+    # Bob can't mark his own gift
+    assert client.post(f"/p/{tokens['Bob']}/purchased/{item_id}", data={"csrf": _csrf(client)}).status_code == 404
+    # Cara marks it bought; it's anonymous to others, hidden from Bob
+    post(client, f"/p/{tokens['Cara']}/purchased/{item_id}")
+    assert bought_by() == ids["Cara"]
+    cara_page = client.get(f"/p/{tokens['Cara']}").data.decode()
+    dan_page = client.get(f"/p/{tokens['Dan']}").data.decode()
     bob_page = client.get(f"/p/{tokens['Bob']}").data.decode()
-    assert "Bought" not in bob_page
+    assert "You bought this" in cara_page and "Undo" in cara_page
+    assert "Already bought" in dan_page and ">I bought this</button>" not in dan_page
+    assert "bought by" not in dan_page.lower()
+    assert "Already bought" not in bob_page and "You bought" not in bob_page
+    # Dan can't take it over or undo it
+    r = post(client, f"/p/{tokens['Dan']}/purchased/{item_id}")
+    assert bought_by() == ids["Cara"] and b"already marked" in r.data
+    # Cara can undo
+    post(client, f"/p/{tokens['Cara']}/purchased/{item_id}")
+    assert bought_by() is None
+
+    # "Start next year" clears bought marks but keeps the wish lists
+    post(client, f"/p/{tokens['Cara']}/purchased/{item_id}")
+    post(client, "/admin/new-year")
+    assert bought_by() is None
+    assert rows().execute("SELECT COUNT(*) FROM items").fetchone()[0] == 1
 
 
-def _csrf(client):
-    with client.session_transaction() as s:
-        return s["csrf"]
+def test_add_and_edit_person_phone(client):
+    r = post(client, "/admin/people", name="Zed", phone="not a number")
+    assert b"doesn" in r.data and rows().execute("SELECT COUNT(*) FROM people").fetchone()[0] == 0
+    post(client, "/admin/people", name="Zed", phone="+1 (555) 222-3333")
+    row = rows().execute("SELECT * FROM people").fetchone()
+    assert row["phone"] == "+15552223333"
+    post(client, f"/admin/people/{row['id']}/edit", name="Zed Z", phone="555 999 8888", email="")
+    row = rows().execute("SELECT * FROM people").fetchone()
+    assert (row["name"], row["phone"]) == ("Zed Z", "5559998888")
+
+
+def test_old_database_is_upgraded(tmp_path, monkeypatch):
+    path = str(tmp_path / "old.db")
+    c = sqlite3.connect(path)
+    c.executescript("""
+    CREATE TABLE people(id INTEGER PRIMARY KEY, name TEXT NOT NULL, email TEXT, token TEXT NOT NULL UNIQUE);
+    CREATE TABLE assignments(giver_id INTEGER PRIMARY KEY, receiver_id INTEGER NOT NULL);
+    CREATE TABLE items(id INTEGER PRIMARY KEY, person_id INTEGER NOT NULL, title TEXT NOT NULL, url TEXT,
+        price TEXT, image TEXT, note TEXT, purchased INTEGER NOT NULL DEFAULT 0,
+        created TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
+    INSERT INTO people(id,name,token) VALUES (1,'Ann','t1'),(2,'Bob','t2');
+    INSERT INTO assignments VALUES (1,2);
+    INSERT INTO items(person_id,title,purchased) VALUES (2,'Lamp',1),(2,'Socks',0);
+    """)
+    c.commit()
+    c.close()
+    monkeypatch.setattr(app_module, "DB_PATH", path)
+    app_module.init_db()
+    d = sqlite3.connect(path)
+    assert "phone" in {r[1] for r in d.execute("PRAGMA table_info(people)")}
+    got = dict(d.execute("SELECT title, purchased_by FROM items").fetchall())
+    assert got == {"Lamp": 1, "Socks": None}  # old "bought" mark carried over to the giver
 
 
 def test_security_basics(client):
@@ -175,8 +247,8 @@ def test_security_basics(client):
     anon = app_module.app.test_client()
     assert anon.get("/admin").status_code == 302                  # login required
     assert anon.get("/p/not-a-real-token").status_code == 404
-    # javascript: links are rejected on wish list items
-    p = app_module.sqlite3.connect(app_module.DB_PATH).execute("SELECT token FROM people LIMIT 1").fetchone()
-    if p:
-        r = post(client, f"/p/{p[0]}/items", url="javascript:alert(1)", title="x")
-        assert b"doesn" in r.data
+    post(client, "/admin/people", name="Zed")
+    token = rows().execute("SELECT token FROM people").fetchone()[0]
+    r = post(client, f"/p/{token}/items", url="javascript:alert(1)", title="x")  # scripts rejected
+    assert b"doesn" in r.data
+    assert rows().execute("SELECT COUNT(*) FROM items").fetchone()[0] == 0

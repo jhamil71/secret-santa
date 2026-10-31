@@ -18,7 +18,7 @@
   .flash{padding:10px 14px;border-radius:8px;margin:0 0 14px}
   .flash.ok{background:#e3f1e8;color:#14472b} .flash.error{background:#fbe5e5;color:#7d1b1f}
   label{display:block;font-weight:600;font-size:.9rem;margin:10px 0 4px}
-  input[type=text],input[type=url],input[type=email],input[type=password],select,textarea{width:100%;padding:9px 11px;border:1px solid #cfc3ad;border-radius:8px;font:inherit;background:#fff}
+  input[type=text],input[type=url],input[type=email],input[type=tel],input[type=password],select,textarea{width:100%;padding:9px 11px;border:1px solid #cfc3ad;border-radius:8px;font:inherit;background:#fff}
   textarea{min-height:60px}
   .row{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end} .row>*{flex:1 1 160px}
   .check{display:flex;gap:8px;align-items:center;font-weight:400;margin:8px 0} .check input{width:auto}
@@ -40,6 +40,12 @@
   .reveal{background:var(--soft);border-radius:10px;padding:14px;text-align:center}
   .reveal summary{font-size:1.1rem}
   .reveal .name{font-size:1.8rem;font-weight:800;color:var(--red);margin:8px 0}
+  .prow{padding:12px 0;border-bottom:1px solid var(--line)}
+  .prow .pname{display:flex;flex-direction:column;gap:2px;margin-bottom:6px}
+  .prow .pedit{margin-top:8px} .prow .pedit form{margin:8px 0}
+  .plist{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:10px 0;background:var(--soft)}
+  .plist>summary{font-weight:700;color:var(--ink)}
+  .plist[open]>summary{margin-bottom:6px}
   .linkbox{display:flex;gap:6px;align-items:center} .linkbox input{font-size:.8rem}
   @media(max-width:520px){.thumb{flex-basis:72px;width:72px;height:72px}}
 </style>
