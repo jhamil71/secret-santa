@@ -154,9 +154,9 @@ def test_full_flow(client, monkeypatch):
     tokens = {r["name"]: r["token"] for r in d.execute("SELECT * FROM people")}
     slugs = {r["name"]: r["list_slug"] for r in d.execute("SELECT * FROM people")}
 
-    # text-link buttons carry the phone number and that person's personal link
+    # the organizer page has no text/copy link buttons
     dash = client.get("/admin").data.decode()
-    assert "sms:5551000000?&amp;body=" in dash and tokens["Ann"] in dash
+    assert "Text link" not in dash and "Copy link" not in dash
 
     # couples (both ways) + a one-way rule + last year's matches
     post(client, "/admin/exclusions", a=ids["Ann"], b=ids["Bob"], both="1")

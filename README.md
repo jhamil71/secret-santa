@@ -8,7 +8,6 @@ A small self-hosted gift exchange (think Elfster, but yours).
 - **Shareable wish list page**: every person also gets a separate public link (`/list/...`) for their wish list alone, shown on the landing page with Copy link and Text it buttons. It has no Secret Santa wording and shows no one else's information, so they can send it to anyone (grandparents, friends, anyone outside the exchange). It's separate from the private link, so sharing it never reveals who anyone drew. It's hidden from search engines, but anyone with the link can view it.
 - **Checking things off**: anyone with the link, family or not, can tap **I bought this** on a gift. Everyone else then sees an anonymous "Already bought", and only the person who checked it can undo it. The list's owner never sees the checkmarks. (The site recognises the owner by their browser, after they've opened their private link. If they open their own shared link on a device that has never opened their private link, they'd see the checkmarks, so keep that one for others.)
 - **Phone-number sign-in**: no passwords or accounts. The organizer enters each person's name and mobile number; family type their number on the main page and see "Welcome, <name>". The landing page lists everyone, each name linking to that person's public wish list, and shows who you're buying for once names are drawn. Your own entry shows your shareable link (Copy link / Text it) and an Edit my list button instead, and opening your own public list is blocked so you can't spoil what's been bought for you.
-- **Personal links** (optional): tap **Text link** next to a name and your own messages app opens with a sign-in link ready to send (nothing is sent automatically, and no texting service is needed). Opening the link signs that person in without typing their number.
 
 ## Run it
 
@@ -38,7 +37,7 @@ If you don't set `ADMIN_PASSWORD`, one is generated on first start, printed in t
 
 1. Log in as organizer and add everyone, including yourself, with the mobile number each person will use to sign in.
 2. Add couples under **Who can't draw whom**, and enter last year's matches.
-3. Tell everyone to visit the site and enter their number (or tap **Text link** next to each person to send a sign-in link). Sign-in works before the draw, so people can start their wish lists right away. Don't open other people's links yourself: a link signs you in as them and shows who they drew.
+3. Tell everyone to visit the site and enter their number. Sign-in works before the draw, so people can start their wish lists right away. Don't open other people's links yourself: a link signs you in as them and shows who they drew.
 4. When everyone is in, press **Draw names**. Everyone signs in to see who they drew and that person's wish list.
 5. Next season, press **Start next year**. This year's matches are archived and avoided in the next draw; wish lists are kept.
 

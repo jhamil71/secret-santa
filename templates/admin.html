@@ -13,7 +13,7 @@
 {# ---------- 1. People ---------- #}
 <div class="card">
   <h2>1 · Who's playing</h2>
-  <p class="muted">Add everyone, <strong>including yourself</strong>, with a mobile number. Family sign in on the main page by typing that number, so make sure it's the one they'll use. <strong>Text link</strong> opens your messages app with a personal sign-in link ready to send, which saves them typing.</p>
+  <p class="muted">Add everyone, <strong>including yourself</strong>, with a mobile number. Family sign in on the main page by typing that number, so make sure it's the one they'll use.</p>
   <p class="muted">Sign-in works right away, so people can start their wish lists before the draw. Don't open other people's links yourself: a link signs you in as them and shows who they drew.</p>
 
   {% for p in people %}
@@ -21,12 +21,6 @@
     <div class="pname">
       <strong data-pname="{{ p.id }}">{{ p.name }}</strong>
       <span class="muted">{{ p.phone or 'no number yet' }} · {{ p.n_items }} gift{{ '' if p.n_items == 1 else 's' }} on their list</span>
-    </div>
-    <div class="actions">
-      {% if p.phone %}
-        <a class="btn small" href="sms:{{ p.phone }}?&amp;body={{ sms_text(p.name, p.token)|urlencode }}">💬 Text link</a>
-      {% endif %}
-      <button class="btn ghost small" type="button" data-copy="{{ link_for(p.token) }}">Copy link</button>
     </div>
     <details class="pedit" id="pedit-{{ p.id }}">
       <summary>Edit name or number <span class="muted">(saves automatically)</span></summary>
