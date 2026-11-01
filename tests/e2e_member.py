@@ -65,7 +65,8 @@ try:
         with ann.expect_response(lambda r: "/edit" in r.url):
             t.fill("Red Wool Scarf")
         check("Saved" in ann.inner_text("#toast"), "typing in an old entry shows Saved")
-        with ann.expect_response(lambda r: "/edit" in r.url):
+        # (leaving the title box also saves; wait for the save that actually carries the new price)
+        with ann.expect_response(lambda r: "/edit" in r.url and "30" in (r.request.post_data or "")):
             ann.locator(".item.editable input[name=price]").first.fill("$30")
         ann.reload()
         check(ann.locator(".item.editable input[name=title]").first.input_value() == "Red Wool Scarf"
