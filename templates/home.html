@@ -59,16 +59,16 @@
         </div>
         <div class="actions">
           <a class="btn small" href="{{ url_for('mine') }}">Edit my list</a>
-          <a class="btn ghost small" href="sms:?&amp;body={{ ('Here is my wish list: ' ~ share_link)|urlencode }}">Text link</a>
         </div>
         <p class="muted" style="margin:.8rem 0 0">Anyone with this link can see your list and check off what they bought. You never see which.</p>
       </li>
       {% else %}
-      <li>
+      <li class="other">
         <a class="person" href="{{ url_for('public_list', slug=p.list_slug) }}">
           <span class="pname">{{ p.name }}</span>
           <span class="pcount">{{ p.n_items }} gift{{ '' if p.n_items == 1 else 's' }}</span>
         </a>
+        <button class="copy" type="button" data-copy="{{ list_link(p.list_slug) }}" aria-label="Copy {{ p.name }}'s wish list link">Copy link</button>
       </li>
       {% endif %}
     {% endfor %}

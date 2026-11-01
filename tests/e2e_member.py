@@ -43,7 +43,8 @@ try:
               "her row shows a copyable link to her public list")
         ann.click(".people .you button:has-text('Copy link')")
         check(ann.locator(".people .you button.btn.small").first.inner_text() == "Copied!", "Copy link button confirms 'Copied!'")
-        check(ann.locator(".people .you a:has-text('Text link')").get_attribute("href").startswith("sms:"), "Text link opens messages")
+        check(ann.locator("a:has-text('Text link')").count() == 0, "no Text link buttons anywhere")
+        check(ann.locator(".people li.other button.copy").count() == 2, "every other family member has a Copy link button")
 
         # her editable list: simple page, add a gift (no reload), then edit it by just typing
         ann.click(".people .you a:has-text('Edit my list')"); ann.wait_for_selector("h1:has-text('My wish list')")

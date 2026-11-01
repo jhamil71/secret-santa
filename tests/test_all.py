@@ -341,10 +341,13 @@ def test_public_wish_list_page(client, monkeypatch):
     # his editable list is simple: every gift open for editing, and no share box or "Your gifts" heading
     assert 'name="title" value="Cool Lamp"' in mine and 'value="warm white"' in mine
     assert "Your gifts" not in mine and "Preview" not in mine and "readonly" not in mine
-    # the copyable share link lives on his landing page, as a Copy button and a Text button
+    # the copyable share link lives on his landing page, as a Copy button
     home = bob.get("/").data.decode()
     assert f'value="http://localhost/list/{slug}"' in home and f'data-copy="http://localhost/list/{slug}"' in home
-    assert "sms:?&amp;body=" in home and "Copy link" in home
+    assert "sms:" not in home and "Text link" not in home and "Copy link" in home
+    # everyone else's row has a Copy link button for their public list too
+    cara_slug = rows().execute("SELECT list_slug FROM people WHERE id=?", (p["Cara"]["id"],)).fetchone()[0]
+    assert f'data-copy="http://localhost/list/{cara_slug}"' in home
 
     # CSRF protection applies to the public toggle too
     assert _visitor().post(f"/list/{slug}/bought/{item_id}").status_code == 400

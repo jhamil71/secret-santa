@@ -240,12 +240,6 @@ def list_link(slug):
     return f"{base_url()}{url_for('public_list', slug=slug)}"
 
 
-def sms_text(name, token):
-    return (f"Hi {name}! Our family Secret Santa is on. Tap your personal link to sign in "
-            f"(please don't share it): {person_link(token)}  "
-            f"Or visit {base_url()} any time and enter your phone number.")
-
-
 @app.before_request
 def csrf_protect():
     if request.method == "POST":
@@ -344,7 +338,7 @@ def index():
         "SELECT p.id, p.name, p.list_slug, (SELECT COUNT(*) FROM items i WHERE i.person_id=p.id) AS n_items "
         "FROM people p ORDER BY LOWER(p.name)").fetchall()
     return render_template("home.html", me=me, people=people, target=target, drawn=is_drawn(),
-                           year=int(get_setting("year")), share_link=list_link(me["list_slug"]))
+                           year=int(get_setting("year")), share_link=list_link(me["list_slug"]), list_link=list_link)
 
 
 @app.post("/login")
@@ -433,7 +427,7 @@ def admin():
         "admin.html", people=people, names=names, rules=rules, last=last, year=year,
         drawn=is_drawn(), drawn_at=get_setting("drawn_at"),
         settings={k: get_setting(k) for k in DEFAULTS},
-        link_for=person_link, sms_text=sms_text)
+        link_for=person_link)
 
 
 @app.post("/admin/people")

@@ -209,3 +209,11 @@ a.person:hover::after { color: var(--cranberry); }
 }
 
 @media (max-width: 30rem) { .bar .wordmark { font-size: .9rem; } }
+
+/* family rows: the name opens the list; a quiet button copies its link */
+.people > li.other { display: flex; align-items: center; }
+.people > li.other .person { flex: 1; min-width: 0; }
+.people .copy { flex: none; margin-left: .4rem; background: none; border: 0; padding: .5rem .3rem; font: 600 .88rem/1 var(--sans); color: var(--fir); text-decoration: underline; text-underline-offset: .18em; cursor: pointer; }
+.people .copy:hover { color: var(--cranberry); }
+.people > li.other .person::after { display: none; }
+.people > li.other .pcount { margin-left: auto; }
