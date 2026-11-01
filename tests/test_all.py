@@ -591,7 +591,7 @@ def test_draw_ignores_last_year_when_option_is_off(client):
 def test_landing_message_is_fixed_text(client):
     post(client, "/admin/people", name="Ann", phone="555 100 0000")
     page = member(phone="555 100 0000").get("/").data.decode()
-    assert "Welcome to the" in page and "Hamilton-Lassally Secret Santa!" in page
-    assert "your giftee may be using this wish list for outside folks too" in page
+    assert "Welcome, Ann." in page and "Don’t wait if you see something on your giftee’s wish list" in page
+    assert "your giftee may be sharing this wish list with outside folks too!" in page
     assert "Try to spend no more than $200. Have fun!" in page
     assert "Budget:" not in page
