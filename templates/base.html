@@ -40,6 +40,11 @@
   .reveal{background:var(--soft);border-radius:10px;padding:14px;text-align:center}
   .reveal summary{font-size:1.1rem}
   .reveal .name{font-size:1.8rem;font-weight:800;color:var(--red);margin:8px 0}
+  .namelist{display:flex;flex-direction:column;gap:8px;margin:12px 0}
+  .nrow{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:13px 14px;border:1px solid var(--line);border-radius:10px;background:#fff;color:var(--ink);text-decoration:none}
+  .nrow:hover,.nrow:focus{border-color:var(--green);background:var(--soft)}
+  .nrow.me{background:#e3f1e8;border-color:#b7d9c4}
+  .nrow .go{color:var(--green);font-weight:600;white-space:nowrap}
   .prow{padding:12px 0;border-bottom:1px solid var(--line)}
   .prow .pname{display:flex;flex-direction:column;gap:2px;margin-bottom:6px}
   .prow .pedit{margin-top:8px} .prow .pedit form{margin:8px 0}
@@ -57,7 +62,16 @@
 {% block header %}
 <header class="top">
   <a class="brand" href="{{ url_for('index') }}">🎁 Family Secret Santa</a>
-  <nav>{% block nav %}{% endblock %}</nav>
+  <nav>
+    {% if viewer %}
+    <form method="post" action="{{ url_for('logout') }}" style="display:inline">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <span style="margin-right:8px">Hi {{ viewer.name }}</span>
+      <button class="btn ghost small" type="submit">Sign out</button>
+    </form>
+    {% endif %}
+    {% block nav %}{% endblock %}
+  </nav>
 </header>
 {% endblock %}
 <main>

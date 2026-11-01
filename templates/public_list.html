@@ -15,12 +15,11 @@
 {% endblock %}
 
 {% block content %}
+{% if logged_in %}<p><a href="{{ url_for('index') }}">← Back to everyone's lists</a></p>{% endif %}
 <h1>{{ name }}'s wish list</h1>
 
-{% if is_owner %}
-<div class="card"><p class="muted" style="margin:0">This is your own list, so you won't see what's been checked off. Keep it a surprise!</p></div>
-{% elif items %}
-<p class="muted">Bought something? Tap <strong>I bought this</strong> so nobody doubles up. <em>(If this is your own list, the checkmarks below are spoilers!)</em></p>
+{% if items %}
+<p class="muted">Bought something? Tap <strong>I bought this</strong> so nobody doubles up. <em>(If this is your own list, please don't peek at the checkmarks: they're spoilers!)</em></p>
 {% endif %}
 
 {% for it in items %}

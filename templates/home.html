@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}Welcome {{ me.name }} · Secret Santa{% endblock %}
+
+{% block content %}
+<h1>Welcome, {{ me.name }} 🎄</h1>
+
+{% if budget or event_note %}
+<div class="card">
+  {% if budget %}<div><strong>Budget:</strong> {{ budget }}</div>{% endif %}
+  {% if event_note %}<div>{{ event_note }}</div>{% endif %}
+</div>
+{% endif %}
+
+<div class="card" id="buying">
+  <h2>🤫 Who you're buying for</h2>
+  {% if target %}
+    <details class="reveal">
+      <summary>Tap to reveal your person</summary>
+      <div class="name">{{ target.name }}</div>
+      <div class="muted">Shh, keep it secret!</div>
+      <p><a class="btn small" href="{{ url_for('public_list', slug=target.list_slug) }}">See {{ target.name }}'s wish list →</a></p>
+    </details>
+  {% elif drawn %}
+    <p class="muted">Names were drawn, but you weren't part of the draw. Let the organizer know.</p>
+  {% else %}
+    <p class="muted">Names haven't been drawn yet. In the meantime, add a few ideas to your own list and browse everyone else's.</p>
+  {% endif %}
+</div>
+
+<div class="card" id="everyone">
+  <h2>🎁 Wish lists</h2>
+  <p class="muted">Tap a name to see their list. You can check off anything you've bought so nobody doubles up.</p>
+  <div class="namelist">
+    {% for p in people %}
+      {% if p.id == me.id %}
+      <a class="nrow me" href="{{ url_for('mine') }}">
+        <span><strong>{{ p.name }}</strong> <span class="pill">you</span>
+          <span class="muted">· {{ p.n_items }} gift{{ '' if p.n_items == 1 else 's' }}</span></span>
+        <span class="go">Edit my list ✎</span>
+      </a>
+      {% else %}
+      <a class="nrow" href="{{ url_for('public_list', slug=p.list_slug) }}">
+        <span><strong>{{ p.name }}</strong>
+          <span class="muted">· {{ p.n_items }} gift{{ '' if p.n_items == 1 else 's' }}</span></span>
+        <span class="go">View ›</span>
+      </a>
+      {% endif %}
+    {% endfor %}
+  </div>
+  <p class="muted" style="margin-bottom:0">Your own list is shown as "Edit my list" so you don't see what others have bought for you.</p>
+</div>
+{% endblock %}

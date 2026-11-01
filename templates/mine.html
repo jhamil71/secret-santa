@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}{{ me.name }} · Secret Santa{% endblock %}
+{% block title %}My wish list · Secret Santa{% endblock %}
 
 {% macro item_fields(item=None) %}
   <label>Link to the gift</label>
@@ -22,80 +22,12 @@
   {% else %}<div class="thumb">🎁</div>{% endif %}
 {% endmacro %}
 
-{# One gift on someone else's list, with the "I bought this" controls. #}
-{% macro other_item(it, me_key, token, csrf) %}
-  <div class="item {{ 'bought' if it.bought_by is not none }}">
-    {{ thumb(it) }}
-    <div class="body">
-      <div class="title">{{ it.title }}</div>
-      {% if it.price %}<div class="price">{{ it.price }}</div>{% endif %}
-      {% if it.note %}<div class="muted">{{ it.note }}</div>{% endif %}
-      <div class="actions">
-        {% if it.url %}<a class="btn small" href="{{ it.url }}" target="_blank" rel="noopener noreferrer">View / buy ↗</a>{% endif %}
-        {% if it.bought_by is none %}
-          <form method="post" action="{{ url_for('toggle_purchased', token=token, item_id=it.id) }}">
-            <input type="hidden" name="csrf" value="{{ csrf }}">
-            <button class="btn ghost small" type="submit">I bought this</button>
-          </form>
-        {% elif it.bought_by == me_key %}
-          <span class="pill green">✓ You bought this</span>
-          <form method="post" action="{{ url_for('toggle_purchased', token=token, item_id=it.id) }}">
-            <input type="hidden" name="csrf" value="{{ csrf }}">
-            <button class="btn ghost small" type="submit">Undo</button>
-          </form>
-        {% else %}
-          <span class="pill green">✓ Already bought</span>
-        {% endif %}
-      </div>
-    </div>
-  </div>
-{% endmacro %}
-
 {% block content %}
-<h1>Hi {{ me.name }} 👋</h1>
-
-{% if budget or event_note %}
-<div class="card">
-  {% if budget %}<div><strong>Budget:</strong> {{ budget }}</div>{% endif %}
-  {% if event_note %}<div>{{ event_note }}</div>{% endif %}
-</div>
-{% endif %}
-
-<div class="card" id="buying">
-  <h2>🤫 Who you're buying for</h2>
-  {% if target %}
-    <details class="reveal">
-      <summary>Tap to reveal your person</summary>
-      <div class="name">{{ target.name }}</div>
-      <div class="muted">Shh, keep it secret!</div>
-      <p><a class="btn small" href="#p{{ target.id }}">See {{ target.name }}'s wish list ↓</a></p>
-    </details>
-  {% elif drawn %}
-    <p class="muted">Names were drawn, but you weren't part of the draw. Let the organizer know.</p>
-  {% else %}
-    <p class="muted">Names haven't been drawn yet. In the meantime, add a few ideas to your own wish list below!</p>
-  {% endif %}
-</div>
-
-<div class="card" id="everyone">
-  <h2>🎄 Everyone's wish lists</h2>
-  <p class="muted">Anyone's list is open to the family. Tap "I bought this" on anything you've bought so nobody doubles up. People never see what's been bought from their own list.</p>
-  {% for o in others %}
-  <details id="p{{ o.person.id }}" class="plist">
-    <summary>{{ o.person.name }} <span class="muted">· {{ o.gifts|length }} gift{{ '' if o.gifts|length == 1 else 's' }}</span></summary>
-    {% for it in o.gifts %}
-      {{ other_item(it, 'p' ~ me.id, token, csrf) }}
-    {% else %}
-      <p class="muted">{{ o.person.name }} hasn't added anything yet.</p>
-    {% endfor %}
-  </details>
-  {% else %}
-  <p class="muted">No one else has joined yet.</p>
-  {% endfor %}
-</div>
+<p><a href="{{ url_for('index') }}">← Back to everyone's lists</a></p>
+<h1>My wish list</h1>
 
 <div class="card" id="mine">
-  <h2>🎁 My wish list</h2>
+  <h2>🎁 Your gifts</h2>
   <p class="muted">Your list has its own page that you can send to anyone. It shows only your gifts, with nothing about Secret Santa. Anyone with the link can check off what they bought, but <strong>you won't see the checkmarks</strong> on your own list. To peek at it without spoilers, use Preview below on this device.</p>
   <div class="linkbox">
     <input type="text" readonly value="{{ share_link }}" onclick="this.select()" aria-label="Your wish list link" style="flex:1">
@@ -117,13 +49,13 @@
       <div class="actions">
         <details style="flex:1 1 100%">
           <summary>Edit</summary>
-          <form method="post" action="{{ url_for('edit_item', token=token, item_id=it.id) }}">
+          <form method="post" action="{{ url_for('edit_item', item_id=it.id) }}">
             <input type="hidden" name="csrf" value="{{ csrf }}">
             {{ item_fields(it) }}
             <p><button class="btn small" type="submit">Save changes</button></p>
           </form>
         </details>
-        <form method="post" action="{{ url_for('delete_item', token=token, item_id=it.id) }}" onsubmit="return confirm('Remove this from your list?')">
+        <form method="post" action="{{ url_for('delete_item', item_id=it.id) }}" onsubmit="return confirm('Remove this from your list?')">
           <input type="hidden" name="csrf" value="{{ csrf }}">
           <button class="btn red small" type="submit">Remove</button>
         </form>
@@ -134,8 +66,8 @@
   <p class="muted">Nothing yet. Add your first idea below.</p>
   {% endfor %}
 
-  <h2 style="margin-top:22px">Add a gift idea</h2>
-  <form method="post" action="{{ url_for('add_item', token=token) }}" id="add-form">
+  <h2 style="margin-top:22px" id="add">Add a gift idea</h2>
+  <form method="post" action="{{ url_for('add_item') }}" id="add-form">
     <input type="hidden" name="csrf" value="{{ csrf }}">
     {{ item_fields() }}
     <p><button class="btn" type="submit">Add to my list</button></p>
@@ -144,15 +76,6 @@
 
 <script>
 (function(){
-  // Open a person's wish list when a link or redirect points at it (#p12).
-  function openHash(){
-    if(!location.hash) return;
-    var el = document.querySelector(location.hash);
-    if(el && el.tagName === 'DETAILS'){ el.open = true; el.scrollIntoView(); }
-  }
-  window.addEventListener('hashchange', openHash);
-  openHash();
-
   var form = document.getElementById('add-form');
   var url = form.querySelector('.f-url'), title = form.querySelector('.f-title'),
       price = form.querySelector('.f-price'), image = form.querySelector('.f-image'),
@@ -163,7 +86,7 @@
     if(!v || v === last) return;
     last = v;
     status.textContent = 'Looking up the product…';
-    fetch({{ url_for('preview', token=token)|tojson }} + '?url=' + encodeURIComponent(v))
+    fetch({{ url_for('preview')|tojson }} + '?url=' + encodeURIComponent(v))
       .then(function(r){ return r.json(); })
       .then(function(d){
         if(d.title && !title.value) title.value = d.title;

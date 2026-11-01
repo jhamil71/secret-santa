@@ -141,18 +141,34 @@ def is_drawn():
     return db().execute("SELECT 1 FROM assignments LIMIT 1").fetchone() is not None
 
 
-def viewer_identity():
-    """Who is browsing a public wish list page? Returns (buyer_key, ids_seen_in_this_browser).
+def current_person():
+    """The signed-in family member (signed in with their phone number or a personal link), or None."""
+    pid = session.get("me_id")
+    if not pid:
+        return None
+    p = db().execute("SELECT * FROM people WHERE id=?", (pid,)).fetchone()
+    if not p:
+        session.pop("me_id", None)
+    return p
 
-    A browser that has opened someone's private link is treated as that family member
-    (so their marks follow them across pages). Anyone else gets a random per-browser key.
+
+def sign_in(person):
+    session["me_id"] = person["id"]
+    session.permanent = True
+
+
+def viewer_identity():
+    """Who is browsing a public wish list page? Returns (buyer_key, signed_in_person_or_None).
+
+    Signed-in family members mark gifts as themselves (so their marks follow them everywhere).
+    Anyone else gets a random per-browser key, so outsiders can check things off too.
     """
-    ids = set(session.get("ids", []))
-    if session.get("me_id"):
-        return f"p{session['me_id']}", ids
+    me = current_person()
+    if me:
+        return f"p{me['id']}", me
     if "vid" not in session:
         session["vid"] = secrets.token_urlsafe(8)
-    return f"v{session['vid']}", ids
+    return f"v{session['vid']}", None
 
 
 def toggle_bought_mark(d, item, key):
@@ -181,6 +197,12 @@ def clean_phone(s):
     if not 7 <= len(digits) <= 15:
         return None
     return ("+" if s.startswith("+") else "") + digits
+
+
+def phone_key(s):
+    """Digits only, last 10 if longer, so '+1 (555) 123-4567' matches '5551234567'."""
+    digits = re.sub(r"\D", "", s or "")
+    return digits[-10:] if len(digits) > 10 else digits
 
 
 def clean_url(s):
@@ -216,9 +238,9 @@ def list_link(slug):
 
 
 def sms_text(name, token):
-    return (f"Hi {name}! Here's your private link for our family Secret Santa: {person_link(token)} "
-            "Add your wish list there, and once names are drawn you'll see who you're buying for. "
-            "Please keep this link to yourself!")
+    return (f"Hi {name}! Our family Secret Santa is on. Tap your personal link to sign in "
+            f"(please don't share it): {person_link(token)}  "
+            f"Or visit {base_url()} any time and enter your phone number.")
 
 
 @app.before_request
@@ -233,7 +255,7 @@ def csrf_protect():
 def inject_globals():
     if "csrf" not in session:
         session["csrf"] = secrets.token_urlsafe(24)
-    return {"csrf": session["csrf"]}
+    return {"csrf": session["csrf"], "viewer": current_person()}
 
 
 def wants_json():
@@ -269,10 +291,66 @@ def too_many_attempts(ip):
     return len(recent) >= 10
 
 
-# ---------- public ----------
+# ---------- sign in & landing page ----------
+def member_required(fn):
+    @wraps(fn)
+    def wrapper(*a, **kw):
+        me = current_person()
+        if not me:
+            return redirect(url_for("index"))
+        return fn(me, *a, **kw)
+    return wrapper
+
+
 @app.route("/")
 def index():
-    return render_template("index.html")
+    me = current_person()
+    if not me:
+        return render_template("index.html")
+    d = db()
+    target = None
+    row = d.execute("SELECT receiver_id FROM assignments WHERE giver_id=?", (me["id"],)).fetchone()
+    if row:
+        target = d.execute("SELECT id, name, list_slug FROM people WHERE id=?", (row["receiver_id"],)).fetchone()
+    people = d.execute(
+        "SELECT p.id, p.name, p.list_slug, (SELECT COUNT(*) FROM items i WHERE i.person_id=p.id) AS n_items "
+        "FROM people p ORDER BY LOWER(p.name)").fetchall()
+    return render_template("home.html", me=me, people=people, target=target, drawn=is_drawn(),
+                           budget=get_setting("budget"), event_note=get_setting("event_note"))
+
+
+@app.post("/login")
+def login():
+    """Pseudo sign-in: just a phone number that the organizer has already entered."""
+    ip = f"user:{request.remote_addr or '?'}"
+    if too_many_attempts(ip):
+        flash("Too many tries. Please wait a few minutes and try again.", "error")
+        return render_template("index.html"), 429
+    raw = request.form.get("phone", "")
+    key = phone_key(raw)
+    matches = []
+    if len(key) >= 7:
+        matches = [p for p in db().execute("SELECT * FROM people")
+                   if p["phone"] and phone_key(p["phone"]) == key]
+    chosen = request.form.get("person_id", type=int)
+    if chosen:
+        matches = [p for p in matches if p["id"] == chosen]
+    if len(matches) == 1:
+        sign_in(matches[0])
+        flash(f"Welcome, {matches[0]['name']}! 🎄", "ok")
+        return redirect(url_for("index"))
+    if len(matches) > 1:  # one phone shared by several family members: ask who is signing in
+        return render_template("index.html", choices=matches, phone=raw)
+    _attempts.setdefault(ip, []).append(time.time())
+    flash("We couldn't find that number. Check it, or ask the organizer to add you.", "error")
+    return render_template("index.html", phone=raw)
+
+
+@app.post("/logout")
+def logout():
+    session.pop("me_id", None)
+    flash("Signed out.", "ok")
+    return redirect(url_for("index"))
 
 
 @app.route("/admin/login", methods=["GET", "POST"])
@@ -539,56 +617,41 @@ def person_or_404(token):
 
 @app.route("/p/<token>")
 def person_page(token):
-    d = db()
-    me = person_or_404(token)
-    # Remember who this browser belongs to, so public list pages can hide marks from a list's
-    # owner and attribute their own marks to them.
-    seen = session.get("ids", [])
-    if me["id"] not in seen:
-        seen.append(me["id"])
-    session["ids"], session["me_id"] = seen, me["id"]
-    session.permanent = True
-    mine = d.execute("SELECT * FROM items WHERE person_id=? ORDER BY id", (me["id"],)).fetchall()
-    target = None
-    row = d.execute("SELECT receiver_id FROM assignments WHERE giver_id=?", (me["id"],)).fetchone()
-    if row:
-        target = d.execute("SELECT * FROM people WHERE id=?", (row["receiver_id"],)).fetchone()
-    # Everyone's wish lists are public to the rest of the family.
-    items_by_person = {}
-    for it in d.execute("SELECT * FROM items WHERE person_id!=? ORDER BY id", (me["id"],)):
-        items_by_person.setdefault(it["person_id"], []).append(it)
-    others = [{"person": p, "gifts": items_by_person.get(p["id"], [])}
-              for p in d.execute("SELECT id, name FROM people WHERE id!=? ORDER BY LOWER(name)",
-                                 (me["id"],))]
-    return render_template(
-        "person.html", me=me, token=token, mine=mine, target=target, others=others,
-        drawn=is_drawn(), budget=get_setting("budget"), event_note=get_setting("event_note"),
-        share_link=list_link(me["list_slug"]))
+    """A personal link texted by the organizer: signs you in, no phone number needed."""
+    sign_in(person_or_404(token))
+    return redirect(url_for("index"))
+
+
+@app.route("/mine")
+@member_required
+def mine(me):
+    items = db().execute("SELECT * FROM items WHERE person_id=? ORDER BY id", (me["id"],)).fetchall()
+    return render_template("mine.html", me=me, mine=items, share_link=list_link(me["list_slug"]))
 
 
 @app.route("/list/<slug>")
 def public_list(slug):
     """A person's wish list on its own page, shareable with anyone. No Secret Santa context.
 
-    Any visitor can mark gifts as bought so people don't double up. Marks are anonymous. The
-    list's owner is recognised (their browser has opened their private page) and never sees them.
+    Anyone can mark gifts as bought so people don't double up; marks are anonymous.
+    A signed-in owner is never shown their own public list (it would show what's been bought),
+    so they are sent to their editable list instead.
     """
     d = db()
     p = d.execute("SELECT id, name FROM people WHERE list_slug=?", (slug,)).fetchone()
     if not p:
         abort(404)
-    key, my_ids = viewer_identity()
-    is_owner = p["id"] in my_ids
+    key, me = viewer_identity()
+    if me and me["id"] == p["id"]:
+        flash("That's your own list, and no peeking at what's been bought! Here is where you can edit it.", "ok")
+        return redirect(url_for("mine"))
     items = []
     for r in d.execute("SELECT id, title, url, price, image, note, bought_by FROM items "
                        "WHERE person_id=? ORDER BY id", (p["id"],)):
-        if is_owner:
-            state = None  # owners see a plain list: no marks, no buttons
-        else:
-            state = "open" if r["bought_by"] is None else ("mine" if r["bought_by"] == key else "other")
+        state = "open" if r["bought_by"] is None else ("mine" if r["bought_by"] == key else "other")
         items.append({**dict(r), "state": state})
     resp = app.make_response(render_template("public_list.html", name=p["name"], slug=slug,
-                                             items=items, is_owner=is_owner))
+                                             items=items, logged_in=bool(me)))
     resp.headers["X-Robots-Tag"] = "noindex, nofollow"
     resp.headers["Cache-Control"] = "no-store"
     return resp
@@ -600,8 +663,8 @@ def public_toggle_bought(slug, item_id):
     p = d.execute("SELECT id FROM people WHERE list_slug=?", (slug,)).fetchone()
     if not p:
         abort(404)
-    key, my_ids = viewer_identity()
-    if p["id"] in my_ids:
+    key, me = viewer_identity()
+    if me and me["id"] == p["id"]:
         abort(404)  # nobody checks things off their own list
     item = d.execute("SELECT * FROM items WHERE id=? AND person_id=?", (item_id, p["id"])).fetchone()
     if not item:
@@ -611,9 +674,9 @@ def public_toggle_bought(slug, item_id):
     return redirect(url_for("public_list", slug=slug) + f"#gift{item_id}")
 
 
-@app.get("/p/<token>/preview")
-def preview(token):
-    person_or_404(token)
+@app.get("/mine/preview")
+@member_required
+def preview(me):
     url = clean_url(request.args.get("url", ""))
     if not url:
         return jsonify(ok=False, error="That doesn't look like a web link.")
@@ -639,13 +702,13 @@ def _item_fields():
     }, None
 
 
-@app.post("/p/<token>/items")
-def add_item(token):
-    me = person_or_404(token)
+@app.post("/mine/items")
+@member_required
+def add_item(me):
     f, err = _item_fields()
     if err:
         flash(err, "error")
-        return redirect(url_for("person_page", token=token) + "#mine")
+        return redirect(url_for("mine"))
     if f["url"] and not f["title"]:  # no JavaScript / preview skipped: try server-side
         info = fetch_preview(f["url"])
         f["title"] = (info.get("title") or "")[:200]
@@ -656,13 +719,13 @@ def add_item(token):
             f["title"] = urlparse(f["url"]).netloc
         else:
             flash("Give the gift a name or paste a link.", "error")
-            return redirect(url_for("person_page", token=token) + "#mine")
+            return redirect(url_for("mine"))
     d = db()
     d.execute("INSERT INTO items(person_id, title, url, price, image, note) VALUES (?,?,?,?,?,?)",
               (me["id"], f["title"], f["url"], f["price"], f["image"], f["note"]))
     d.commit()
     flash("Added to your wish list.", "ok")
-    return redirect(url_for("person_page", token=token) + "#mine")
+    return redirect(url_for("mine") + "#add")
 
 
 def _own_item_or_404(me, item_id):
@@ -672,47 +735,30 @@ def _own_item_or_404(me, item_id):
     return item
 
 
-@app.post("/p/<token>/items/<int:item_id>/edit")
-def edit_item(token, item_id):
-    me = person_or_404(token)
+@app.post("/mine/items/<int:item_id>/edit")
+@member_required
+def edit_item(me, item_id):
     _own_item_or_404(me, item_id)
     f, err = _item_fields()
     if err or not f["title"]:
         flash(err or "A gift needs a name.", "error")
-        return redirect(url_for("person_page", token=token) + "#mine")
+        return redirect(url_for("mine"))
     d = db()
     d.execute("UPDATE items SET title=?, url=?, price=?, image=?, note=? WHERE id=?",
               (f["title"], f["url"], f["price"], f["image"], f["note"], item_id))
     d.commit()
     flash("Saved.", "ok")
-    return redirect(url_for("person_page", token=token) + "#mine")
+    return redirect(url_for("mine"))
 
 
-@app.post("/p/<token>/items/<int:item_id>/delete")
-def delete_item(token, item_id):
-    me = person_or_404(token)
+@app.post("/mine/items/<int:item_id>/delete")
+@member_required
+def delete_item(me, item_id):
     _own_item_or_404(me, item_id)
     d = db()
     d.execute("DELETE FROM items WHERE id=?", (item_id,))
     d.commit()
-    return redirect(url_for("person_page", token=token) + "#mine")
-
-
-@app.post("/p/<token>/purchased/<int:item_id>")
-def toggle_purchased(token, item_id):
-    """Anyone can mark an item on someone ELSE's list as bought; only they can undo it.
-
-    Others see an anonymous "Already bought" (so nobody learns who buys for whom),
-    and the list's owner never sees these marks.
-    """
-    me = person_or_404(token)
-    d = db()
-    item = d.execute("SELECT * FROM items WHERE id=? AND person_id!=?", (item_id, me["id"])).fetchone()
-    if not item:
-        abort(404)
-    if not toggle_bought_mark(d, item, f"p{me['id']}"):
-        flash("Someone else already marked that one as bought.", "error")
-    return redirect(url_for("person_page", token=token) + f"#p{item['person_id']}")
+    return redirect(url_for("mine"))
 
 
 if __name__ == "__main__":

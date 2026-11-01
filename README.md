@@ -7,7 +7,8 @@ A small self-hosted gift exchange (think Elfster, but yours).
 - **Organizer controls**: add people, set rules, draw names, reset or start next year. The page saves as you go (no Save buttons), shows a small "Saved ✓" confirmation, and updates in place without reloading. The organizer can't see who has whom, so you stay surprised too.
 - **Shareable wish list page**: every person also gets a separate public link (`/list/...`) for their wish list alone, shown on their private page with Copy and Text buttons. It has no Secret Santa wording and shows no one else's information, so they can send it to anyone (grandparents, friends, anyone outside the exchange). It's separate from the private link, so sharing it never reveals who anyone drew. It's hidden from search engines, but anyone with the link can view it.
 - **Checking things off**: anyone with the link, family or not, can tap **I bought this** on a gift. Everyone else then sees an anonymous "Already bought", and only the person who checked it can undo it. The list's owner never sees the checkmarks. (The site recognises the owner by their browser, after they've opened their private link. If they open their own shared link on a device that has never opened their private link, they'd see the checkmarks, so keep that one for others.)
-- **Personal links**: no accounts. Each person gets a private link. Enter mobile numbers and tap **Text link** next to each name: your own messages app opens with the link ready to send (nothing is sent automatically, and no texting service is needed).
+- **Phone-number sign-in**: no passwords or accounts. The organizer enters each person's name and mobile number; family type their number on the main page and see "Welcome, <name>". The landing page lists everyone, each name linking to that person's public wish list, and shows who you're buying for once names are drawn. Your own name links to your *editable* list instead, and opening your own public list is blocked so you can't spoil what's been bought for you.
+- **Personal links** (optional): tap **Text link** next to a name and your own messages app opens with a sign-in link ready to send (nothing is sent automatically, and no texting service is needed). Opening the link signs that person in without typing their number.
 
 ## Run it
 
@@ -35,10 +36,10 @@ If you don't set `ADMIN_PASSWORD`, one is generated on first start, printed in t
 
 ## How a season goes
 
-1. Log in as organizer and add everyone, including yourself, with mobile numbers.
+1. Log in as organizer and add everyone, including yourself, with the mobile number each person will use to sign in.
 2. Add couples under **Who can't draw whom**, and enter last year's matches.
-3. Tap **Text link** next to each person (or Copy link). Links work before the draw, so people can start their wish lists right away. Don't open other people's links yourself, since a link shows who that person drew.
-4. When everyone is in, press **Draw names**. Everyone opens their link to see who they drew and that person's wish list.
+3. Tell everyone to visit the site and enter their number (or tap **Text link** next to each person to send a sign-in link). Sign-in works before the draw, so people can start their wish lists right away. Don't open other people's links yourself: a link signs you in as them and shows who they drew.
+4. When everyone is in, press **Draw names**. Everyone signs in to see who they drew and that person's wish list.
 5. Next season, press **Start next year**. This year's matches are archived and avoided in the next draw; wish lists are kept.
 
 ## Settings (environment variables)
@@ -53,6 +54,8 @@ If you don't set `ADMIN_PASSWORD`, one is generated on first start, printed in t
 
 ## Good to know
 
+- **Phone-number sign-in is convenience, not strong security.** Anyone who knows a family member's number could sign in as them and see who they drew. That is fine for a family exchange; attempts are rate limited, and the site isn't listed anywhere. Real text-message codes would need a paid texting service, so ask if you want that later.
+
 - **Back up the `data/` folder.** It holds the database.
 - **Put it behind HTTPS** (a reverse proxy like Caddy, or a tunnel) if it's reachable from the internet.
 - **Link previews** read each store's page. Some (Amazon in particular) block this; in that case the form tells you and you fill in name, price and picture yourself.
@@ -62,6 +65,7 @@ If you don't set `ADMIN_PASSWORD`, one is generated on first start, printed in t
 
 ```bash
 pip install pytest && python -m pytest tests -q
-# optional browser test of the organizer page:
-pip install playwright && playwright install chromium && python tests/e2e_browser.py
+# optional browser tests (organizer page, and the family's sign-in journey):
+pip install playwright && playwright install chromium
+python tests/e2e_browser.py && python tests/e2e_member.py
 ```

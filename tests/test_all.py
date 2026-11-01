@@ -107,6 +107,7 @@ def test_clean_url_rejects_scripts():
 @pytest.fixture()
 def client(tmp_path, monkeypatch):
     monkeypatch.setattr(app_module, "DB_PATH", str(tmp_path / "t.db"))
+    app_module._attempts.clear()
     app_module.init_db()
     app_module.app.config["TESTING"] = True
     c = app_module.app.test_client()
@@ -126,6 +127,17 @@ def post(c, path, **data):
     return c.post(path, data=data, follow_redirects=True)
 
 
+def member(phone=None, token=None):
+    """A fresh browser signed in as a family member: by typing their phone number, or via their personal link."""
+    c = app_module.app.test_client()
+    if token:
+        c.get(f"/p/{token}", follow_redirects=True)
+    else:
+        c.get("/")
+        c.post("/login", data={"csrf": _csrf(c), "phone": phone}, follow_redirects=True)
+    return c
+
+
 def rows():
     d = sqlite3.connect(app_module.DB_PATH)
     d.row_factory = sqlite3.Row
@@ -134,16 +146,17 @@ def rows():
 
 def test_full_flow(client, monkeypatch):
     names = ["Ann", "Bob", "Cara", "Dan", "Eve", "Fay"]
-    for i, n in enumerate(names):
-        post(client, "/admin/people", name=n, phone=f"(555) 100-000{i}")
+    phones = {n: f"(555) 100-000{i}" for i, n in enumerate(names)}
+    for n in names:
+        post(client, "/admin/people", name=n, phone=phones[n])
     d = rows()
     ids = {r["name"]: r["id"] for r in d.execute("SELECT * FROM people")}
     tokens = {r["name"]: r["token"] for r in d.execute("SELECT * FROM people")}
+    slugs = {r["name"]: r["list_slug"] for r in d.execute("SELECT * FROM people")}
 
-    # text-link buttons carry the phone number and that person's private link
+    # text-link buttons carry the phone number and that person's personal link
     dash = client.get("/admin").data.decode()
-    assert "sms:5551000000?&amp;body=" in dash
-    assert tokens["Ann"] in dash and "Which person are you" not in dash
+    assert "sms:5551000000?&amp;body=" in dash and tokens["Ann"] in dash
 
     # couples (both ways) + a one-way rule + last year's matches
     post(client, "/admin/exclusions", a=ids["Ann"], b=ids["Bob"], both="1")
@@ -151,10 +164,11 @@ def test_full_flow(client, monkeypatch):
     post(client, "/admin/exclusions", a=ids["Eve"], b=ids["Fay"])
     post(client, "/admin/history", **{f"last_{ids['Ann']}": ids["Cara"], f"last_{ids['Cara']}": ids["Ann"]})
 
-    # Bob adds a gift from just a link (preview stubbed)
+    # Bob signs in with his phone number and adds a gift from just a link (preview stubbed)
     monkeypatch.setattr(app_module, "fetch_preview", lambda u: {
         "ok": True, "title": "Cool Lamp", "image": "https://img.example/lamp.jpg", "price": "$45.00", "error": None})
-    post(client, f"/p/{tokens['Bob']}/items", url="https://shop.example/lamp", title="", price="", image="", note="warm white")
+    bob = member(phone=phones["Bob"])
+    post(bob, "/mine/items", url="https://shop.example/lamp", title="", price="", image="", note="warm white")
 
     for _ in range(60):
         r = post(client, "/admin/draw")
@@ -167,44 +181,43 @@ def test_full_flow(client, monkeypatch):
         assert all((b, a) not in pairs for a, b in pairs) and all(a != b for a, b in pairs)
         post(client, "/admin/reset")
     post(client, "/admin/draw")
+    giver_of = {x["giver_id"]: x["receiver_id"] for x in d.execute("SELECT * FROM assignments")}
+    name_of = {v: k for k, v in ids.items()}
 
-    # every OTHER family member sees Bob's gift, price and picture, whoever they drew
     for n in names:
-        page = client.get(f"/p/{tokens[n]}").data.decode()
+        me = member(phone=phones[n])
+        home = me.get("/").data.decode()
+        assert f"Welcome, {n}" in home
+        # the landing page lists everyone, each linking to their public list, except you: you get your editable list
+        for other in names:
+            if other == n:
+                assert f'href="/list/{slugs[other]}"' not in home
+            else:
+                assert f'href="/list/{slugs[other]}"' in home
+        assert 'href="/mine"' in home
+        # your drawn person is revealed, with a link to their list
+        target = name_of[giver_of[ids[n]]]
+        assert target in home and f"See {target}" in home
+        # everyone but Bob sees Bob's gift on his public list
         if n != "Bob":
+            page = me.get(f"/list/{slugs['Bob']}").data.decode()
             assert "Cool Lamp" in page and "$45.00" in page and "https://img.example/lamp.jpg" in page
             assert ">I bought this</button>" in page
-    # dashboard does not reveal the matches
-    assert "reveal your person" not in client.get("/admin").data.decode()
-
-    item_id = d.execute("SELECT id FROM items").fetchone()[0]
-
-    def bought_by():
-        return rows().execute("SELECT bought_by FROM items WHERE id=?", (item_id,)).fetchone()[0]
-
-    # Bob can't mark his own gift
-    assert client.post(f"/p/{tokens['Bob']}/purchased/{item_id}", data={"csrf": _csrf(client)}).status_code == 404
-    # Cara marks it bought; it's anonymous to others, hidden from Bob
-    post(client, f"/p/{tokens['Cara']}/purchased/{item_id}")
-    assert bought_by() == f"p{ids['Cara']}"
-    cara_page = client.get(f"/p/{tokens['Cara']}").data.decode()
-    dan_page = client.get(f"/p/{tokens['Dan']}").data.decode()
-    bob_page = client.get(f"/p/{tokens['Bob']}").data.decode()
-    assert "You bought this" in cara_page and "Undo" in cara_page
-    assert "Already bought" in dan_page and ">I bought this</button>" not in dan_page
-    assert "bought by" not in dan_page.lower()
-    assert "Already bought" not in bob_page and "You bought" not in bob_page
-    # Dan can't take it over or undo it
-    r = post(client, f"/p/{tokens['Dan']}/purchased/{item_id}")
-    assert bought_by() == f"p{ids['Cara']}" and b"already marked" in r.data
-    # Cara can undo
-    post(client, f"/p/{tokens['Cara']}/purchased/{item_id}")
-    assert bought_by() is None
+        else:
+            # ...but Bob can't open his own: he's sent to his editable list
+            r = me.get(f"/list/{slugs['Bob']}")
+            assert r.status_code == 302 and r.headers["Location"].endswith("/mine")
+            mine_page = me.get("/mine").data.decode()
+            assert "Cool Lamp" in mine_page and ">I bought this</button>" not in mine_page
+    assert "reveal your person" not in client.get("/admin").data.decode()  # organizer can't see matches
 
     # "Start next year" clears bought marks but keeps the wish lists
-    post(client, f"/p/{tokens['Cara']}/purchased/{item_id}")
+    item_id = d.execute("SELECT id FROM items").fetchone()[0]
+    cara = member(phone=phones["Cara"])
+    post(cara, f"/list/{slugs['Bob']}/bought/{item_id}")
+    assert _bought_by(item_id) == f"p{ids['Cara']}"
     post(client, "/admin/new-year")
-    assert bought_by() is None
+    assert _bought_by(item_id) is None
     assert rows().execute("SELECT COUNT(*) FROM items").fetchone()[0] == 1
 
 
@@ -262,7 +275,7 @@ def test_public_wish_list_page(client, monkeypatch):
     p = {r["name"]: r for r in d.execute("SELECT * FROM people")}
     monkeypatch.setattr(app_module, "fetch_preview", lambda u: {
         "ok": True, "title": "Cool Lamp", "image": "https://img.example/lamp.jpg", "price": "$45.00", "error": None})
-    post(client, f"/p/{p['Bob']['token']}/items", url="https://shop.example/lamp", title="", price="", image="", note="warm white")
+    post(member(token=p["Bob"]["token"]), "/mine/items", url="https://shop.example/lamp", title="", price="", image="", note="warm white")
     post(client, "/admin/draw")
     item_id = d.execute("SELECT id FROM items").fetchone()[0]
     slug = p["Bob"]["list_slug"]
@@ -302,29 +315,30 @@ def test_public_wish_list_page(client, monkeypatch):
     other.post(f"/list/{slug}/bought/{item_id}", data={"csrf": _csrf(other)})
     assert _bought_by(item_id) == mark
 
-    # A family member (opened their private link) sees the same mark; their private page agrees
-    cara = _visitor(f"/p/{p['Cara']['token']}")
-    assert "Already bought" in cara.get(f"/list/{slug}").data.decode()
-    assert "Already bought" in cara.get(f"/p/{p['Cara']['token']}").data.decode()
+    # A signed-in family member sees the same mark, with a way back to everyone's lists
+    cara = member(token=p["Cara"]["token"])
+    cara_page = cara.get(f"/list/{slug}").data.decode()
+    assert "Already bought" in cara_page and "Back to everyone" in cara_page
+    assert "Back to everyone" not in outsider.get(f"/list/{slug}").data.decode()
 
-    # The outsider undoes theirs; Cara then marks it, and it follows her to her private page
+    # The outsider undoes theirs; Cara then marks it as herself
     outsider.post(f"/list/{slug}/bought/{item_id}", data={"csrf": _csrf(outsider)})
     assert _bought_by(item_id) is None
     cara.post(f"/list/{slug}/bought/{item_id}", data={"csrf": _csrf(cara)})
     assert _bought_by(item_id) == f"p{p['Cara']['id']}"
-    assert "You bought this" in cara.get(f"/p/{p['Cara']['token']}").data.decode()
+    assert "You bought this" in cara.get(f"/list/{slug}").data.decode()
 
-    # Bob (opened his own private link) sees his list with NO marks and NO buttons, and can't mark
-    bob = _visitor(f"/p/{p['Bob']['token']}")
-    page = bob.get(f"/list/{slug}").data.decode()
-    assert "Cool Lamp" in page and "your own list" in page
-    assert "Already bought" not in page and "You bought" not in page and ">I bought this</button>" not in page
+    # Bob, signed in, can NOT open his own public list (it would show what's been bought for him):
+    # he is redirected to his editable list, where no marks or buy buttons exist, and can't mark anything
+    bob = member(token=p["Bob"]["token"])
+    r = bob.get(f"/list/{slug}")
+    assert r.status_code == 302 and r.headers["Location"].endswith("/mine")
+    mine = bob.get(f"/list/{slug}", follow_redirects=True).data.decode()
+    assert "Cool Lamp" in mine and "your own list" in mine
+    assert "Already bought" not in mine and "You bought" not in mine and ">I bought this</button>" not in mine
     assert bob.post(f"/list/{slug}/bought/{item_id}", data={"csrf": _csrf(bob)}).status_code == 404
     assert _bought_by(item_id) == f"p{p['Cara']['id']}"
-    assert "Already bought" not in bob.get(f"/p/{p['Bob']['token']}").data.decode()
-
-    # Bob's private page offers the share link
-    mine = bob.get(f"/p/{p['Bob']['token']}").data.decode()
+    # his editable list offers the share link
     assert f"/list/{slug}" in mine and "sms:?&amp;body=" in mine
 
     # CSRF protection applies to the public toggle too
@@ -380,6 +394,97 @@ def test_security_basics(client):
     assert anon.get("/p/not-a-real-token").status_code == 404
     post(client, "/admin/people", name="Zed")
     token = rows().execute("SELECT token FROM people").fetchone()[0]
-    r = post(client, f"/p/{token}/items", url="javascript:alert(1)", title="x")  # scripts rejected
+    zed = member(token=token)
+    r = post(zed, "/mine/items", url="javascript:alert(1)", title="x")  # scripts rejected
     assert b"doesn" in r.data
+    assert rows().execute("SELECT COUNT(*) FROM items").fetchone()[0] == 0
+
+
+# ---------- phone sign-in ----------
+def test_phone_sign_in(client):
+    post(client, "/admin/people", name="Ann", phone="(555) 100-0000")
+    post(client, "/admin/people", name="Bob", phone="+1 555 200 0000")
+
+    c = app_module.app.test_client()
+    page = c.get("/").data.decode()
+    assert "Your mobile number" in page and "Welcome," not in page          # signed out: just the sign-in box
+
+    def login(phone, **extra):
+        return c.post("/login", data={"csrf": _csrf(c), "phone": phone, **extra}, follow_redirects=True)
+
+    # unknown / too-short numbers don't get in, and say so
+    for bad in ["555 999 9999", "123", "", "not a number"]:
+        r = login(bad)
+        assert b"couldn" in r.data and b"Welcome, " not in r.data
+    assert c.get("/mine").status_code == 302                                 # still signed out
+
+    # formatting doesn't matter, including a country code the organizer did or didn't type
+    r = login("555-100-0000")
+    assert b"Welcome, Ann" in r.data and b"Sign out" in r.data
+    assert c.get("/mine").status_code == 200
+    c.post("/logout", data={"csrf": _csrf(c)})
+    assert c.get("/mine").status_code == 302                                 # signed out again
+    assert b"Welcome, Bob" in login("15552000000").data                      # stored as +1..., typed with 1
+    c.post("/logout", data={"csrf": _csrf(c)})
+    assert b"Welcome, Bob" in login("(555) 200-0000").data                   # stored with +1, typed without
+
+
+def test_shared_phone_asks_who_you_are(client):
+    post(client, "/admin/people", name="Mom", phone="555 300 0000")
+    post(client, "/admin/people", name="Dad", phone="555 300 0000")
+    ids = {r["name"]: r["id"] for r in rows().execute("SELECT * FROM people")}
+    c = app_module.app.test_client()
+    c.get("/")
+    r = c.post("/login", data={"csrf": _csrf(c), "phone": "5553000000"}, follow_redirects=True)
+    assert b"Who are you" in r.data and b"Mom" in r.data and b"Dad" in r.data
+    assert c.get("/mine").status_code == 302                                 # not signed in yet
+    r = c.post("/login", data={"csrf": _csrf(c), "phone": "5553000000", "person_id": ids["Dad"]},
+               follow_redirects=True)
+    assert b"Welcome, Dad" in r.data
+    # a chosen person must still match the phone number that was typed
+    other = app_module.app.test_client()
+    other.get("/")
+    r = other.post("/login", data={"csrf": _csrf(other), "phone": "5559990000", "person_id": ids["Dad"]},
+                   follow_redirects=True)
+    assert b"couldn" in r.data
+
+
+def test_sign_in_is_rate_limited(client):
+    post(client, "/admin/people", name="Ann", phone="555 100 0000")
+    c = app_module.app.test_client()
+    c.get("/")
+    for i in range(10):
+        c.post("/login", data={"csrf": _csrf(c), "phone": f"555 999 {i:04d}"})
+    r = c.post("/login", data={"csrf": _csrf(c), "phone": "555 100 0000"})   # even the right number waits
+    assert r.status_code == 429
+
+
+def test_personal_link_signs_in_and_pages_need_sign_in(client):
+    post(client, "/admin/people", name="Ann", phone="555 100 0000")
+    token = rows().execute("SELECT token FROM people").fetchone()[0]
+    c = app_module.app.test_client()
+    r = c.get(f"/p/{token}")
+    assert r.status_code == 302 and r.headers["Location"].endswith("/")
+    assert b"Welcome, Ann" in c.get("/").data
+    # signed-out visitors can't reach or change anyone's editable list
+    anon = app_module.app.test_client()
+    anon.get("/")
+    assert anon.get("/mine").status_code == 302
+    assert anon.get("/mine/preview?url=https://example.com").status_code == 302
+    assert anon.post("/mine/items", data={"csrf": _csrf(anon), "title": "x"}).status_code == 302
+    assert rows().execute("SELECT COUNT(*) FROM items").fetchone()[0] == 0
+
+
+def test_owner_edits_own_list_only(client):
+    post(client, "/admin/people", name="Ann", phone="555 100 0000")
+    post(client, "/admin/people", name="Bob", phone="555 100 0001")
+    ann, bob = member(phone="555 100 0000"), member(phone="555 100 0001")
+    post(ann, "/mine/items", title="Scarf", url="", price="$20", image="", note="")
+    item_id = rows().execute("SELECT id FROM items").fetchone()[0]
+    # Bob can't edit or delete Ann's gift
+    assert bob.post(f"/mine/items/{item_id}/delete", data={"csrf": _csrf(bob)}).status_code == 404
+    assert bob.post(f"/mine/items/{item_id}/edit", data={"csrf": _csrf(bob), "title": "Hacked"}).status_code == 404
+    post(ann, f"/mine/items/{item_id}/edit", title="Red Scarf", url="", price="$25", image="", note="")
+    assert rows().execute("SELECT title, price FROM items").fetchone()[:] == ("Red Scarf", "$25")
+    post(ann, f"/mine/items/{item_id}/delete")
     assert rows().execute("SELECT COUNT(*) FROM items").fetchone()[0] == 0
