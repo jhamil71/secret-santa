@@ -236,6 +236,20 @@ def inject_globals():
     return {"csrf": session["csrf"]}
 
 
+def wants_json():
+    return request.headers.get("X-Requested-With") == "fetch" and "application/json" in request.headers.get("Accept", "")
+
+
+def autosave_reply(ok, message, **extra):
+    """Autosaving fields get a small JSON answer; plain form posts (no JavaScript) get a flash + redirect."""
+    if wants_json():
+        payload = {"ok": ok, **extra}
+        payload["message" if ok else "error"] = message
+        return jsonify(payload), (200 if ok else 400)
+    flash(message, "ok" if ok else "error")
+    return redirect(url_for("admin"))
+
+
 def admin_required(fn):
     @wraps(fn)
     def wrapper(*a, **kw):
@@ -361,15 +375,15 @@ def edit_person(pid):
     name = clean_text(request.form.get("name"), 60)
     raw_phone = request.form.get("phone", "")
     phone = clean_phone(raw_phone)
-    if not name or (raw_phone.strip() and not phone):
-        flash("Needs a name, and a phone number made of digits (add +1 or similar if needed).", "error")
-        return redirect(url_for("admin"))
+    if not name:
+        return autosave_reply(False, "Every person needs a name.")
+    if raw_phone.strip() and not phone:
+        return autosave_reply(False, "That phone number doesn't look right. Use digits, adding +1 or similar if needed.")
     d = db()
     d.execute("UPDATE people SET name=?, phone=?, email=? WHERE id=?",
               (name, phone, clean_text(request.form.get("email"), 120) or None, pid))
     d.commit()
-    flash(f"Saved {name}.", "ok")
-    return redirect(url_for("admin"))
+    return autosave_reply(True, f"Saved {name}.", name=name, phone=phone)
 
 
 @app.post("/admin/settings")
@@ -380,8 +394,7 @@ def save_settings():
     set_setting("avoid_swaps", "1" if request.form.get("avoid_swaps") else "0")
     set_setting("avoid_last", "1" if request.form.get("avoid_last") else "0")
     db().commit()
-    flash("Settings saved.", "ok")
-    return redirect(url_for("admin"))
+    return autosave_reply(True, "Settings saved.")
 
 
 @app.post("/admin/exclusions")
@@ -438,8 +451,7 @@ def save_history():
             d.execute("INSERT INTO history(year, giver_id, receiver_id) VALUES (?, ?, ?)",
                       (last_year, gid, int(raw)))
     d.commit()
-    flash(f"Saved last year's ({last_year}) matches.", "ok")
-    return redirect(url_for("admin"))
+    return autosave_reply(True, f"Saved last year's ({last_year}) matches.")
 
 
 @app.post("/admin/draw")

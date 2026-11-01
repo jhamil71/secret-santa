@@ -338,6 +338,41 @@ def test_empty_public_list(client):
     assert "Nothing on this list yet" in page
 
 
+JSON = {"X-Requested-With": "fetch", "Accept": "application/json"}
+
+
+def test_autosave_json_replies(client):
+    post(client, "/admin/people", name="Ann")
+    post(client, "/admin/people", name="Bob")
+    pid = rows().execute("SELECT id FROM people WHERE name='Ann'").fetchone()[0]
+    bid = rows().execute("SELECT id FROM people WHERE name='Bob'").fetchone()[0]
+
+    def jpost(path, **data):
+        data["csrf"] = _csrf(client)
+        return client.post(path, data=data, headers=JSON)
+
+    r = jpost("/admin/settings", budget="$50", event_note="At Grandma's", avoid_swaps="1")
+    assert r.status_code == 200 and r.get_json()["ok"] is True
+    assert app_module.sqlite3.connect(app_module.DB_PATH).execute(
+        "SELECT value FROM settings WHERE key='budget'").fetchone()[0] == "$50"
+
+    r = jpost(f"/admin/people/{pid}/edit", name="Annie", phone="555 111 2222", email="")
+    assert r.get_json() == {"ok": True, "message": "Saved Annie.", "name": "Annie", "phone": "5551112222"}
+
+    r = jpost(f"/admin/people/{pid}/edit", name="Annie", phone="nope", email="")
+    assert r.status_code == 400 and r.get_json()["ok"] is False and "phone" in r.get_json()["error"]
+    assert rows().execute("SELECT phone FROM people WHERE id=?", (pid,)).fetchone()[0] == "5551112222"
+    assert jpost(f"/admin/people/{pid}/edit", name="", phone="").get_json()["ok"] is False
+
+    r = jpost("/admin/history", **{f"last_{pid}": bid})
+    assert r.get_json()["ok"] is True
+    assert rows().execute("SELECT receiver_id FROM history WHERE giver_id=?", (pid,)).fetchone()[0] == bid
+
+    # without the JSON headers the same routes still work as ordinary form posts
+    r = client.post("/admin/settings", data={"csrf": _csrf(client), "budget": "$60"})
+    assert r.status_code == 302
+
+
 def test_security_basics(client):
     assert client.post("/admin/draw").status_code == 400          # CSRF required
     anon = app_module.app.test_client()
