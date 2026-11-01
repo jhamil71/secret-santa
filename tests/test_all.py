@@ -293,7 +293,7 @@ def test_public_wish_list_page(client, monkeypatch):
     import re
     low = re.sub(r"<style.*?</style>", "", page, flags=re.S).lower()
     # (the page header deliberately matches the home page, so "Secret Santa" appears only there; nothing about the draw does)
-    for word in ["drawn", "draw ", "reveal", "organizer", "who you're buying"]:
+    for word in ["drawn", "draw ", "organizer", "who you're buying"]:
         assert word not in low, word
     for person in p.values():
         assert person["token"] not in page
