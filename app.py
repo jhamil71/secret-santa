@@ -337,6 +337,10 @@ def index():
     people = d.execute(
         "SELECT p.id, p.name, p.list_slug, (SELECT COUNT(*) FROM items i WHERE i.person_id=p.id) AS n_items "
         "FROM people p ORDER BY LOWER(p.name)").fetchall()
+    # your giftee first, then you, then everyone else alphabetically
+    def rank(p):
+        return 0 if target and p["id"] == target["id"] else 1 if p["id"] == me["id"] else 2
+    people = sorted(people, key=rank)  # stable, so the rest stay alphabetical
     return render_template("home.html", me=me, people=people, target=target, drawn=is_drawn(),
                            year=int(get_setting("year")), share_link=list_link(me["list_slug"]), list_link=list_link)
 

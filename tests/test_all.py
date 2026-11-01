@@ -1,3 +1,4 @@
+import re
 import os
 import random
 import sqlite3
@@ -198,6 +199,9 @@ def test_full_flow(client, monkeypatch):
         # your drawn person is the one highlighted row (and only that row), linking to their list
         target = name_of[giver_of[ids[n]]]
         assert home.count("other giftee") == 1
+        order = re.findall(r'class="pname">([^<(]+?)\s*(?:<|\()', home)
+        rest = sorted((x for x in names if x not in (n, target)), key=str.lower)
+        assert [x.strip() for x in order] == [target, n] + rest, order
         assert f'class="other giftee">\n        <a class="person" href="/list/{slugs[target]}"' in home
         # everyone but Bob sees Bob's gift on his public list
         if n != "Bob":
