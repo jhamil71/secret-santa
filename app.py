@@ -691,8 +691,13 @@ def public_toggle_bought(slug, item_id):
     item = d.execute("SELECT * FROM items WHERE id=? AND person_id=?", (item_id, p["id"])).fetchone()
     if not item:
         abort(404)
+    was_mine = item["bought_by"] == key
     if not toggle_bought_mark(d, item, key):
         flash("Someone else already marked that one as bought.", "error")
+    elif was_mine:
+        flash("Undone. That gift is available again.", "ok")
+    else:
+        flash("Marked as bought. Tapped by mistake? Press Undo on that gift.", "ok")
     return redirect(url_for("public_list", slug=slug) + f"#gift{item_id}")
 
 

@@ -45,7 +45,7 @@
         <span class="pill green">You bought this</span>
         <form method="post" action="{{ url_for('public_toggle_bought', slug=slug, item_id=it.id) }}">
           <input type="hidden" name="csrf" value="{{ csrf }}">
-          <button class="btn ghost small" type="submit">Undo</button>
+          <button class="btn red small" type="submit">Undo</button>
         </form>
       {% elif it.state == 'other' %}
         <span class="pill green">Already bought</span>
