@@ -252,3 +252,11 @@ a.person:hover::after { color: var(--cranberry); }
 /* instant reveal, and a thinner fog you can see through */
 .fog-wrap.fogged > .item { filter: blur(3px); opacity: .9; }
 .fog-wrap.fogged::before { background: radial-gradient(ellipse at 30% 20%, rgba(242,244,239,.35), rgba(230,234,225,.22) 60%, rgba(242,244,239,.35)); }
+
+/* zebra rows; your giftee in sage green; you in the page's pale fir tint */
+.people { border-bottom: 1px solid var(--line); }
+.people > li { border-bottom: 0; background: #fff; }
+.people > li:nth-child(even) { background: #e9ebe5; }
+.people > li.giftee, .people > li.giftee:nth-child(even) { background: #bfd3bc; }
+.people > li.giftee .pname { font-weight: 700; }
+.people > li.you, .people > li.you:nth-child(even) { background: #f3ead8; }

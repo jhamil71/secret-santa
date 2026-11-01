@@ -41,7 +41,6 @@
 
 <section class="section" id="everyone">
   <h2>The family</h2>
-  <p class="lede">Open a name to see their wish list. Check off anything you've bought so nobody doubles up.</p>
   <ul class="people">
     {% for p in people %}
       {% if p.id == me.id %}
@@ -63,7 +62,7 @@
         <p class="muted" style="margin:.8rem 0 0">Anyone with this link can see your list and check off what they bought. You never see which.</p>
       </li>
       {% else %}
-      <li class="other">
+      <li class="other{{ ' giftee' if target and p.id == target.id }}">
         <a class="person" href="{{ url_for('public_list', slug=p.list_slug) }}">
           <span class="pname">{{ p.name }}</span>
           <span class="pcount">{{ p.n_items }} gift{{ '' if p.n_items == 1 else 's' }}</span>
