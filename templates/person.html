@@ -23,8 +23,8 @@
 {% endmacro %}
 
 {# One gift on someone else's list, with the "I bought this" controls. #}
-{% macro other_item(it, me_id, token, csrf) %}
-  <div class="item {{ 'bought' if it.purchased_by is not none }}">
+{% macro other_item(it, me_key, token, csrf) %}
+  <div class="item {{ 'bought' if it.bought_by is not none }}">
     {{ thumb(it) }}
     <div class="body">
       <div class="title">{{ it.title }}</div>
@@ -32,12 +32,12 @@
       {% if it.note %}<div class="muted">{{ it.note }}</div>{% endif %}
       <div class="actions">
         {% if it.url %}<a class="btn small" href="{{ it.url }}" target="_blank" rel="noopener noreferrer">View / buy ↗</a>{% endif %}
-        {% if it.purchased_by is none %}
+        {% if it.bought_by is none %}
           <form method="post" action="{{ url_for('toggle_purchased', token=token, item_id=it.id) }}">
             <input type="hidden" name="csrf" value="{{ csrf }}">
             <button class="btn ghost small" type="submit">I bought this</button>
           </form>
-        {% elif it.purchased_by == me_id %}
+        {% elif it.bought_by == me_key %}
           <span class="pill green">✓ You bought this</span>
           <form method="post" action="{{ url_for('toggle_purchased', token=token, item_id=it.id) }}">
             <input type="hidden" name="csrf" value="{{ csrf }}">
@@ -84,7 +84,7 @@
   <details id="p{{ o.person.id }}" class="plist">
     <summary>{{ o.person.name }} <span class="muted">· {{ o.gifts|length }} gift{{ '' if o.gifts|length == 1 else 's' }}</span></summary>
     {% for it in o.gifts %}
-      {{ other_item(it, me.id, token, csrf) }}
+      {{ other_item(it, 'p' ~ me.id, token, csrf) }}
     {% else %}
       <p class="muted">{{ o.person.name }} hasn't added anything yet.</p>
     {% endfor %}
@@ -96,7 +96,15 @@
 
 <div class="card" id="mine">
   <h2>🎁 My wish list</h2>
-  <p class="muted">The whole family can see this list, so they know what you'd love. They can mark gifts as bought to avoid doubles, but you won't see which, so it stays a surprise.</p>
+  <p class="muted">Your list has its own page that you can send to anyone. It shows only your gifts, with nothing about Secret Santa. Anyone with the link can check off what they bought, but <strong>you won't see the checkmarks</strong> on your own list. To peek at it without spoilers, use Preview below on this device.</p>
+  <div class="linkbox">
+    <input type="text" readonly value="{{ share_link }}" onclick="this.select()" aria-label="Your wish list link" style="flex:1">
+    <button class="btn ghost small" type="button" data-copy="{{ share_link }}">Copy</button>
+  </div>
+  <div class="actions" style="margin-bottom:12px">
+    <a class="btn small" href="sms:?&amp;body={{ ('Here is my wish list: ' ~ share_link)|urlencode }}">💬 Text it</a>
+    <a class="btn ghost small" href="{{ share_link }}" target="_blank" rel="noopener noreferrer">Preview ↗</a>
+  </div>
 
   {% for it in mine %}
   <div class="item">

@@ -180,13 +180,13 @@ def test_full_flow(client, monkeypatch):
     item_id = d.execute("SELECT id FROM items").fetchone()[0]
 
     def bought_by():
-        return rows().execute("SELECT purchased_by FROM items WHERE id=?", (item_id,)).fetchone()[0]
+        return rows().execute("SELECT bought_by FROM items WHERE id=?", (item_id,)).fetchone()[0]
 
     # Bob can't mark his own gift
     assert client.post(f"/p/{tokens['Bob']}/purchased/{item_id}", data={"csrf": _csrf(client)}).status_code == 404
     # Cara marks it bought; it's anonymous to others, hidden from Bob
     post(client, f"/p/{tokens['Cara']}/purchased/{item_id}")
-    assert bought_by() == ids["Cara"]
+    assert bought_by() == f"p{ids['Cara']}"
     cara_page = client.get(f"/p/{tokens['Cara']}").data.decode()
     dan_page = client.get(f"/p/{tokens['Dan']}").data.decode()
     bob_page = client.get(f"/p/{tokens['Bob']}").data.decode()
@@ -196,7 +196,7 @@ def test_full_flow(client, monkeypatch):
     assert "Already bought" not in bob_page and "You bought" not in bob_page
     # Dan can't take it over or undo it
     r = post(client, f"/p/{tokens['Dan']}/purchased/{item_id}")
-    assert bought_by() == ids["Cara"] and b"already marked" in r.data
+    assert bought_by() == f"p{ids['Cara']}" and b"already marked" in r.data
     # Cara can undo
     post(client, f"/p/{tokens['Cara']}/purchased/{item_id}")
     assert bought_by() is None
@@ -238,8 +238,104 @@ def test_old_database_is_upgraded(tmp_path, monkeypatch):
     app_module.init_db()
     d = sqlite3.connect(path)
     assert "phone" in {r[1] for r in d.execute("PRAGMA table_info(people)")}
-    got = dict(d.execute("SELECT title, purchased_by FROM items").fetchall())
-    assert got == {"Lamp": 1, "Socks": None}  # old "bought" mark carried over to the giver
+    got = dict(d.execute("SELECT title, bought_by FROM items").fetchall())
+    assert got == {"Lamp": "p1", "Socks": None}  # old "bought" mark carried over to the giver
+    slugs = [r[0] for r in d.execute("SELECT list_slug FROM people")]
+    assert len(slugs) == 2 and all(slugs) and len(set(slugs)) == 2  # public list links backfilled
+
+
+def _visitor(path_or_none=None):
+    """A fresh browser (own cookies). Optionally opens a private page first, like a family member would."""
+    c = app_module.app.test_client()
+    c.get(path_or_none or "/")
+    return c
+
+
+def _bought_by(item_id):
+    return rows().execute("SELECT bought_by FROM items WHERE id=?", (item_id,)).fetchone()[0]
+
+
+def test_public_wish_list_page(client, monkeypatch):
+    for n in ["Ann", "Bob", "Cara"]:
+        post(client, "/admin/people", name=n)
+    d = rows()
+    p = {r["name"]: r for r in d.execute("SELECT * FROM people")}
+    monkeypatch.setattr(app_module, "fetch_preview", lambda u: {
+        "ok": True, "title": "Cool Lamp", "image": "https://img.example/lamp.jpg", "price": "$45.00", "error": None})
+    post(client, f"/p/{p['Bob']['token']}/items", url="https://shop.example/lamp", title="", price="", image="", note="warm white")
+    post(client, "/admin/draw")
+    item_id = d.execute("SELECT id FROM items").fetchone()[0]
+    slug = p["Bob"]["list_slug"]
+    assert slug and slug != p["Bob"]["token"] and len(slug) >= 8  # separate, unguessable link
+
+    # An outsider (no account, never opened a private link) sees the list, with no Secret Santa context
+    outsider = _visitor()
+    r = outsider.get(f"/list/{slug}")
+    page = r.data.decode()
+    assert r.status_code == 200
+    assert "Cool Lamp" in page and "$45.00" in page and "https://img.example/lamp.jpg" in page
+    assert "https://shop.example/lamp" in page and "warm white" in page
+    assert 'name="robots" content="noindex' in page and r.headers["X-Robots-Tag"].startswith("noindex")
+    assert ">I bought this</button>" in page
+    import re
+    low = re.sub(r"<style.*?</style>", "", page, flags=re.S).lower()
+    for word in ["secret santa", "drawn", "draw ", "reveal", "organizer", "who you're buying"]:
+        assert word not in low, word
+    for person in p.values():
+        assert person["token"] not in page
+    assert "Ann" not in page and "Cara" not in page
+    assert outsider.get("/list/not-a-real-slug").status_code == 404
+    assert outsider.get(f"/list/{p['Bob']['token']}").status_code == 404
+    assert outsider.get(f"/p/{slug}").status_code == 404
+
+    # The outsider checks it off: it sticks, they can undo it
+    outsider.post(f"/list/{slug}/bought/{item_id}", data={"csrf": _csrf(outsider)})
+    assert _bought_by(item_id).startswith("v")
+    page = outsider.get(f"/list/{slug}").data.decode()
+    assert "You bought this" in page and "Undo" in page
+
+    # A second outsider sees it as already bought, anonymously, and can't take it over or undo it
+    other = _visitor()
+    page = other.get(f"/list/{slug}").data.decode()
+    assert "Already bought" in page and ">I bought this</button>" not in page and "Undo" not in page
+    mark = _bought_by(item_id)
+    other.post(f"/list/{slug}/bought/{item_id}", data={"csrf": _csrf(other)})
+    assert _bought_by(item_id) == mark
+
+    # A family member (opened their private link) sees the same mark; their private page agrees
+    cara = _visitor(f"/p/{p['Cara']['token']}")
+    assert "Already bought" in cara.get(f"/list/{slug}").data.decode()
+    assert "Already bought" in cara.get(f"/p/{p['Cara']['token']}").data.decode()
+
+    # The outsider undoes theirs; Cara then marks it, and it follows her to her private page
+    outsider.post(f"/list/{slug}/bought/{item_id}", data={"csrf": _csrf(outsider)})
+    assert _bought_by(item_id) is None
+    cara.post(f"/list/{slug}/bought/{item_id}", data={"csrf": _csrf(cara)})
+    assert _bought_by(item_id) == f"p{p['Cara']['id']}"
+    assert "You bought this" in cara.get(f"/p/{p['Cara']['token']}").data.decode()
+
+    # Bob (opened his own private link) sees his list with NO marks and NO buttons, and can't mark
+    bob = _visitor(f"/p/{p['Bob']['token']}")
+    page = bob.get(f"/list/{slug}").data.decode()
+    assert "Cool Lamp" in page and "your own list" in page
+    assert "Already bought" not in page and "You bought" not in page and ">I bought this</button>" not in page
+    assert bob.post(f"/list/{slug}/bought/{item_id}", data={"csrf": _csrf(bob)}).status_code == 404
+    assert _bought_by(item_id) == f"p{p['Cara']['id']}"
+    assert "Already bought" not in bob.get(f"/p/{p['Bob']['token']}").data.decode()
+
+    # Bob's private page offers the share link
+    mine = bob.get(f"/p/{p['Bob']['token']}").data.decode()
+    assert f"/list/{slug}" in mine and "sms:?&amp;body=" in mine
+
+    # CSRF protection applies to the public toggle too
+    assert _visitor().post(f"/list/{slug}/bought/{item_id}").status_code == 400
+
+
+def test_empty_public_list(client):
+    post(client, "/admin/people", name="Zed")
+    slug = rows().execute("SELECT list_slug FROM people").fetchone()[0]
+    page = app_module.app.test_client().get(f"/list/{slug}").data.decode()
+    assert "Nothing on this list yet" in page
 
 
 def test_security_basics(client):

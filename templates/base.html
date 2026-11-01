@@ -49,12 +49,15 @@
   .linkbox{display:flex;gap:6px;align-items:center} .linkbox input{font-size:.8rem}
   @media(max-width:520px){.thumb{flex-basis:72px;width:72px;height:72px}}
 </style>
+{% block head %}{% endblock %}
 </head>
 <body>
+{% block header %}
 <header class="top">
   <a class="brand" href="{{ url_for('index') }}">🎁 Family Secret Santa</a>
   <nav>{% block nav %}{% endblock %}</nav>
 </header>
+{% endblock %}
 <main>
   {% with msgs = get_flashed_messages(with_categories=true) %}
     {% for cat, msg in msgs %}<div class="flash {{ cat }}">{{ msg }}</div>{% endfor %}

@@ -56,7 +56,8 @@ if os.environ.get("TRUST_PROXY") == "1":
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS people(
-    id INTEGER PRIMARY KEY, name TEXT NOT NULL, phone TEXT, email TEXT, token TEXT NOT NULL UNIQUE);
+    id INTEGER PRIMARY KEY, name TEXT NOT NULL, phone TEXT, email TEXT, token TEXT NOT NULL UNIQUE,
+    list_slug TEXT);
 CREATE TABLE IF NOT EXISTS exclusions(
     giver_id INTEGER NOT NULL REFERENCES people(id) ON DELETE CASCADE,
     receiver_id INTEGER NOT NULL REFERENCES people(id) ON DELETE CASCADE,
@@ -73,7 +74,7 @@ CREATE TABLE IF NOT EXISTS items(
     id INTEGER PRIMARY KEY,
     person_id INTEGER NOT NULL REFERENCES people(id) ON DELETE CASCADE,
     title TEXT NOT NULL, url TEXT, price TEXT, image TEXT, note TEXT,
-    purchased_by INTEGER REFERENCES people(id) ON DELETE SET NULL,
+    bought_by TEXT,
     created TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
 CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT);
 """
@@ -87,14 +88,22 @@ def init_db():
     with sqlite3.connect(DB_PATH) as c:
         c.executescript(SCHEMA)
         # Upgrade databases created by earlier versions.
-        if "phone" not in {r[1] for r in c.execute("PRAGMA table_info(people)")}:
+        pcols = {r[1] for r in c.execute("PRAGMA table_info(people)")}
+        if "phone" not in pcols:
             c.execute("ALTER TABLE people ADD COLUMN phone TEXT")
+        if "list_slug" not in pcols:
+            c.execute("ALTER TABLE people ADD COLUMN list_slug TEXT")
+        for (pid,) in c.execute("SELECT id FROM people WHERE list_slug IS NULL").fetchall():
+            c.execute("UPDATE people SET list_slug=? WHERE id=?", (secrets.token_urlsafe(6), pid))
+        c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_people_list_slug ON people(list_slug)")
         icols = {r[1] for r in c.execute("PRAGMA table_info(items)")}
-        if "purchased_by" not in icols:
-            c.execute("ALTER TABLE items ADD COLUMN purchased_by INTEGER "
-                      "REFERENCES people(id) ON DELETE SET NULL")
-            if "purchased" in icols:
-                c.execute("UPDATE items SET purchased_by=(SELECT giver_id FROM assignments "
+        if "bought_by" not in icols:
+            # bought_by is a text key: "p<id>" for a family member, "v<random>" for a visitor's browser.
+            c.execute("ALTER TABLE items ADD COLUMN bought_by TEXT")
+            if "purchased_by" in icols:
+                c.execute("UPDATE items SET bought_by='p'||purchased_by WHERE purchased_by IS NOT NULL")
+            elif "purchased" in icols:
+                c.execute("UPDATE items SET bought_by=(SELECT 'p'||giver_id FROM assignments "
                           "WHERE receiver_id=items.person_id) WHERE purchased=1")
         for k, v in DEFAULTS.items():
             c.execute("INSERT OR IGNORE INTO settings(key, value) VALUES (?, ?)", (k, v))
@@ -130,6 +139,32 @@ def set_setting(key, value):
 
 def is_drawn():
     return db().execute("SELECT 1 FROM assignments LIMIT 1").fetchone() is not None
+
+
+def viewer_identity():
+    """Who is browsing a public wish list page? Returns (buyer_key, ids_seen_in_this_browser).
+
+    A browser that has opened someone's private link is treated as that family member
+    (so their marks follow them across pages). Anyone else gets a random per-browser key.
+    """
+    ids = set(session.get("ids", []))
+    if session.get("me_id"):
+        return f"p{session['me_id']}", ids
+    if "vid" not in session:
+        session["vid"] = secrets.token_urlsafe(8)
+    return f"v{session['vid']}", ids
+
+
+def toggle_bought_mark(d, item, key):
+    """Mark an item bought, or undo your own mark. False if someone else holds the mark."""
+    if item["bought_by"] is None:
+        d.execute("UPDATE items SET bought_by=? WHERE id=? AND bought_by IS NULL", (key, item["id"]))
+    elif item["bought_by"] == key:
+        d.execute("UPDATE items SET bought_by=NULL WHERE id=?", (item["id"],))
+    else:
+        return False
+    d.commit()
+    return True
 
 
 # ---------- helpers ----------
@@ -173,6 +208,11 @@ def base_url():
 
 def person_link(token):
     return f"{base_url()}{url_for('person_page', token=token)}"
+
+
+def list_link(slug):
+    """Public, shareable wish list address. Separate from the private link."""
+    return f"{base_url()}{url_for('public_list', slug=slug)}"
 
 
 def sms_text(name, token):
@@ -293,9 +333,9 @@ def add_person():
     if raw_phone.strip() and not phone:
         flash("That phone number doesn't look right. Use digits only, adding a country code like +1 if needed.", "error")
         return redirect(url_for("admin"))
-    d.execute("INSERT INTO people(name, phone, email, token) VALUES (?, ?, ?, ?)",
+    d.execute("INSERT INTO people(name, phone, email, token, list_slug) VALUES (?, ?, ?, ?, ?)",
               (name, phone, clean_text(request.form.get("email"), 120) or None,
-               secrets.token_urlsafe(12)))
+               secrets.token_urlsafe(12), secrets.token_urlsafe(6)))
     d.commit()
     flash(f"Added {name}.", "ok")
     return redirect(url_for("admin"))
@@ -309,6 +349,7 @@ def delete_person(pid):
         flash("Reset the draw before removing someone.", "error")
         return redirect(url_for("admin"))
     d.execute("DELETE FROM people WHERE id=?", (pid,))
+    d.execute("UPDATE items SET bought_by=NULL WHERE bought_by=?", (f"p{pid}",))
     d.commit()
     return redirect(url_for("admin"))
 
@@ -470,7 +511,7 @@ def new_year():
     d.execute("INSERT OR REPLACE INTO history(year, giver_id, receiver_id) "
               "SELECT ?, giver_id, receiver_id FROM assignments", (year,))
     d.execute("DELETE FROM assignments")
-    d.execute("UPDATE items SET purchased_by=NULL")
+    d.execute("UPDATE items SET bought_by=NULL")
     set_setting("year", year + 1)
     set_setting("drawn_at", "")
     d.commit()
@@ -490,6 +531,13 @@ def person_or_404(token):
 def person_page(token):
     d = db()
     me = person_or_404(token)
+    # Remember who this browser belongs to, so public list pages can hide marks from a list's
+    # owner and attribute their own marks to them.
+    seen = session.get("ids", [])
+    if me["id"] not in seen:
+        seen.append(me["id"])
+    session["ids"], session["me_id"] = seen, me["id"]
+    session.permanent = True
     mine = d.execute("SELECT * FROM items WHERE person_id=? ORDER BY id", (me["id"],)).fetchall()
     target = None
     row = d.execute("SELECT receiver_id FROM assignments WHERE giver_id=?", (me["id"],)).fetchone()
@@ -504,7 +552,53 @@ def person_page(token):
                                  (me["id"],))]
     return render_template(
         "person.html", me=me, token=token, mine=mine, target=target, others=others,
-        drawn=is_drawn(), budget=get_setting("budget"), event_note=get_setting("event_note"))
+        drawn=is_drawn(), budget=get_setting("budget"), event_note=get_setting("event_note"),
+        share_link=list_link(me["list_slug"]))
+
+
+@app.route("/list/<slug>")
+def public_list(slug):
+    """A person's wish list on its own page, shareable with anyone. No Secret Santa context.
+
+    Any visitor can mark gifts as bought so people don't double up. Marks are anonymous. The
+    list's owner is recognised (their browser has opened their private page) and never sees them.
+    """
+    d = db()
+    p = d.execute("SELECT id, name FROM people WHERE list_slug=?", (slug,)).fetchone()
+    if not p:
+        abort(404)
+    key, my_ids = viewer_identity()
+    is_owner = p["id"] in my_ids
+    items = []
+    for r in d.execute("SELECT id, title, url, price, image, note, bought_by FROM items "
+                       "WHERE person_id=? ORDER BY id", (p["id"],)):
+        if is_owner:
+            state = None  # owners see a plain list: no marks, no buttons
+        else:
+            state = "open" if r["bought_by"] is None else ("mine" if r["bought_by"] == key else "other")
+        items.append({**dict(r), "state": state})
+    resp = app.make_response(render_template("public_list.html", name=p["name"], slug=slug,
+                                             items=items, is_owner=is_owner))
+    resp.headers["X-Robots-Tag"] = "noindex, nofollow"
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
+
+
+@app.post("/list/<slug>/bought/<int:item_id>")
+def public_toggle_bought(slug, item_id):
+    d = db()
+    p = d.execute("SELECT id FROM people WHERE list_slug=?", (slug,)).fetchone()
+    if not p:
+        abort(404)
+    key, my_ids = viewer_identity()
+    if p["id"] in my_ids:
+        abort(404)  # nobody checks things off their own list
+    item = d.execute("SELECT * FROM items WHERE id=? AND person_id=?", (item_id, p["id"])).fetchone()
+    if not item:
+        abort(404)
+    if not toggle_bought_mark(d, item, key):
+        flash("Someone else already marked that one as bought.", "error")
+    return redirect(url_for("public_list", slug=slug) + f"#gift{item_id}")
 
 
 @app.get("/p/<token>/preview")
@@ -606,14 +700,8 @@ def toggle_purchased(token, item_id):
     item = d.execute("SELECT * FROM items WHERE id=? AND person_id!=?", (item_id, me["id"])).fetchone()
     if not item:
         abort(404)
-    if item["purchased_by"] is None:
-        d.execute("UPDATE items SET purchased_by=? WHERE id=? AND purchased_by IS NULL",
-                  (me["id"], item_id))
-    elif item["purchased_by"] == me["id"]:
-        d.execute("UPDATE items SET purchased_by=NULL WHERE id=?", (item_id,))
-    else:
+    if not toggle_bought_mark(d, item, f"p{me['id']}"):
         flash("Someone else already marked that one as bought.", "error")
-    d.commit()
     return redirect(url_for("person_page", token=token) + f"#p{item['person_id']}")
 
 

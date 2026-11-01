@@ -3,8 +3,10 @@
 A small self-hosted gift exchange (think Elfster, but yours).
 
 - **Rules for the draw**: couples can't draw each other, no one draws the same person as last year, no one draws themselves, and (optionally) no direct swaps.
-- **Wish lists**: paste a product link and the name, picture and price are filled in automatically (you can edit them, or add your own picture link when a store blocks previews). Everyone's list is visible to the whole family, and anyone can tap **I bought this** on someone else's gift so nobody doubles up. The mark shows as an anonymous "Already bought", and the list's owner never sees it.
+- **Wish lists**: paste a product link and the name, picture and price are filled in automatically (you can edit them, or add your own picture link when a store blocks previews). Everyone's list is also browsable by the whole family from their own page.
 - **Organizer controls**: add people, set rules, draw names, reset or start next year. The organizer can't see who has whom, so you stay surprised too.
+- **Shareable wish list page**: every person also gets a separate public link (`/list/...`) for their wish list alone, shown on their private page with Copy and Text buttons. It has no Secret Santa wording and shows no one else's information, so they can send it to anyone (grandparents, friends, anyone outside the exchange). It's separate from the private link, so sharing it never reveals who anyone drew. It's hidden from search engines, but anyone with the link can view it.
+- **Checking things off**: anyone with the link, family or not, can tap **I bought this** on a gift. Everyone else then sees an anonymous "Already bought", and only the person who checked it can undo it. The list's owner never sees the checkmarks. (The site recognises the owner by their browser, after they've opened their private link. If they open their own shared link on a device that has never opened their private link, they'd see the checkmarks, so keep that one for others.)
 - **Personal links**: no accounts. Each person gets a private link. Enter mobile numbers and tap **Text link** next to each name: your own messages app opens with the link ready to send (nothing is sent automatically, and no texting service is needed).
 
 ## Run it

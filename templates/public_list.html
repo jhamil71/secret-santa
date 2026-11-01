@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}{{ name }}'s wish list{% endblock %}
+
+{% block head %}
+<meta name="robots" content="noindex, nofollow">
+<meta property="og:type" content="website">
+<meta property="og:title" content="{{ name }}'s wish list">
+<meta property="og:description" content="{{ items|length }} gift idea{{ '' if items|length == 1 else 's' }}">
+{% for it in items if it.image %}{% if loop.first %}<meta property="og:image" content="{{ it.image }}">{% endif %}{% endfor %}
+{% endblock %}
+
+{# A neutral header: this page is meant to be shared on its own, so no Secret Santa wording or links. #}
+{% block header %}
+<header class="top"><span class="brand">🎁 {{ name }}'s wish list</span></header>
+{% endblock %}
+
+{% block content %}
+<h1>{{ name }}'s wish list</h1>
+
+{% if is_owner %}
+<div class="card"><p class="muted" style="margin:0">This is your own list, so you won't see what's been checked off. Keep it a surprise!</p></div>
+{% elif items %}
+<p class="muted">Bought something? Tap <strong>I bought this</strong> so nobody doubles up. <em>(If this is your own list, the checkmarks below are spoilers!)</em></p>
+{% endif %}
+
+{% for it in items %}
+<div class="item {{ 'bought' if it.state in ('mine', 'other') }}" id="gift{{ it.id }}">
+  {% if it.image %}<img class="thumb" src="{{ it.image }}" alt="" loading="lazy" referrerpolicy="no-referrer">
+  {% else %}<div class="thumb">🎁</div>{% endif %}
+  <div class="body">
+    <div class="title">{{ it.title }}</div>
+    {% if it.price %}<div class="price">{{ it.price }}</div>{% endif %}
+    {% if it.note %}<div class="muted">{{ it.note }}</div>{% endif %}
+    <div class="actions">
+      {% if it.url %}<a class="btn small" href="{{ it.url }}" target="_blank" rel="noopener noreferrer">View / buy ↗</a>{% endif %}
+      {% if it.state == 'open' %}
+        <form method="post" action="{{ url_for('public_toggle_bought', slug=slug, item_id=it.id) }}">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <button class="btn ghost small" type="submit">I bought this</button>
+        </form>
+      {% elif it.state == 'mine' %}
+        <span class="pill green">✓ You bought this</span>
+        <form method="post" action="{{ url_for('public_toggle_bought', slug=slug, item_id=it.id) }}">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <button class="btn ghost small" type="submit">Undo</button>
+        </form>
+      {% elif it.state == 'other' %}
+        <span class="pill green">✓ Already bought</span>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% else %}
+<div class="card"><p class="muted">Nothing on this list yet. Check back soon!</p></div>
+{% endfor %}
+{% endblock %}
