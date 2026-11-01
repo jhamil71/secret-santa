@@ -31,6 +31,13 @@
 {% block header %}
 <header class="masthead small">
   <div class="masthead-inner">
+    {% if viewer %}
+    <form class="who" method="post" action="{{ url_for('logout') }}">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <span>{{ viewer.name }}</span>
+      <button class="linkbtn" type="submit">Sign out</button>
+    </form>
+    {% endif %}
     <a class="mast-link" href="{{ url_for('index') }}" aria-label="Back to the Secret Santa home page">
       <span class="mast-title"><span class="nowrap">Hamilton-</span><span class="nowrap">Lassally</span> Secret Santa</span>
       <span class="mast-year">{{ year }}</span>

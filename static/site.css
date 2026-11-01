@@ -244,3 +244,5 @@ a.person:hover::after { color: var(--cranberry); }
 @keyframes fog-clear { from { filter: blur(14px); opacity: .55; } to { filter: none; opacity: 1; } }
 .fog-btn { position: absolute; z-index: 3; left: 50%; top: 5rem; transform: translateX(-50%); padding: .8rem 1.6rem; font-size: 1.05rem; }
 @media (prefers-reduced-motion: reduce) { .fog-wrap.clearing::before, .fog-wrap.clearing > .item { animation: none; } }
+
+.masthead.small .who { margin-bottom: .9rem; }

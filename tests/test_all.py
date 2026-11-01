@@ -322,6 +322,7 @@ def test_public_wish_list_page(client, monkeypatch):
     cara_page = cara.get(f"/list/{slug}").data.decode()
     assert "Already bought" in cara_page and 'class="mast-link" href="/"' in cara_page
     assert "spoilers" not in cara_page
+    assert "Sign out" in cara_page and "Sign out" not in outsider.get(f"/list/{slug}").data.decode()
 
     # The outsider undoes theirs; Cara then marks it as herself
     outsider.post(f"/list/{slug}/bought/{item_id}", data={"csrf": _csrf(outsider)})
