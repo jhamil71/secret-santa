@@ -33,11 +33,19 @@
   <div class="namelist">
     {% for p in people %}
       {% if p.id == me.id %}
-      <a class="nrow me" href="{{ url_for('mine') }}">
-        <span><strong>{{ p.name }}</strong> <span class="pill">you</span>
-          <span class="muted">· {{ p.n_items }} gift{{ '' if p.n_items == 1 else 's' }}</span></span>
-        <span class="go">Edit my list ✎</span>
-      </a>
+      <div class="nrow me mycard">
+        <div><strong>{{ p.name }}</strong> <span class="pill">you</span>
+          <span class="muted">· {{ p.n_items }} gift{{ '' if p.n_items == 1 else 's' }}</span></div>
+        <div class="linkbox">
+          <input type="text" readonly value="{{ share_link }}" onclick="this.select()" aria-label="Link to your wish list">
+          <button class="btn small" type="button" data-copy="{{ share_link }}">Copy link</button>
+        </div>
+        <div class="actions">
+          <a class="btn small" href="{{ url_for('mine') }}">✎ Edit my list</a>
+          <a class="btn ghost small" href="sms:?&amp;body={{ ('Here is my wish list: ' ~ share_link)|urlencode }}">💬 Text it</a>
+        </div>
+        <div class="muted">Send your link to anyone, family or not. They can see your list and check off what they bought, but you never see which.</div>
+      </div>
       {% else %}
       <a class="nrow" href="{{ url_for('public_list', slug=p.list_slug) }}">
         <span><strong>{{ p.name }}</strong>
@@ -47,6 +55,6 @@
       {% endif %}
     {% endfor %}
   </div>
-  <p class="muted" style="margin-bottom:0">Your own list is shown as "Edit my list" so you don't see what others have bought for you.</p>
+  <p class="muted" style="margin-bottom:0">You can't open your own public list, so you never see what's been bought for you.</p>
 </div>
 {% endblock %}

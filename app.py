@@ -262,14 +262,14 @@ def wants_json():
     return request.headers.get("X-Requested-With") == "fetch" and "application/json" in request.headers.get("Accept", "")
 
 
-def autosave_reply(ok, message, **extra):
+def autosave_reply(ok, message, to="admin", **extra):
     """Autosaving fields get a small JSON answer; plain form posts (no JavaScript) get a flash + redirect."""
     if wants_json():
         payload = {"ok": ok, **extra}
         payload["message" if ok else "error"] = message
         return jsonify(payload), (200 if ok else 400)
     flash(message, "ok" if ok else "error")
-    return redirect(url_for("admin"))
+    return redirect(url_for(to))
 
 
 def admin_required(fn):
@@ -316,7 +316,8 @@ def index():
         "SELECT p.id, p.name, p.list_slug, (SELECT COUNT(*) FROM items i WHERE i.person_id=p.id) AS n_items "
         "FROM people p ORDER BY LOWER(p.name)").fetchall()
     return render_template("home.html", me=me, people=people, target=target, drawn=is_drawn(),
-                           budget=get_setting("budget"), event_note=get_setting("event_note"))
+                           budget=get_setting("budget"), event_note=get_setting("event_note"),
+                           share_link=list_link(me["list_slug"]))
 
 
 @app.post("/login")
@@ -626,7 +627,7 @@ def person_page(token):
 @member_required
 def mine(me):
     items = db().execute("SELECT * FROM items WHERE person_id=? ORDER BY id", (me["id"],)).fetchall()
-    return render_template("mine.html", me=me, mine=items, share_link=list_link(me["list_slug"]))
+    return render_template("mine.html", me=me, mine=items)
 
 
 @app.route("/list/<slug>")
@@ -738,17 +739,18 @@ def _own_item_or_404(me, item_id):
 @app.post("/mine/items/<int:item_id>/edit")
 @member_required
 def edit_item(me, item_id):
+    """Edit an existing gift. Autosaves as you type (JSON), or works as a plain form post."""
     _own_item_or_404(me, item_id)
     f, err = _item_fields()
-    if err or not f["title"]:
-        flash(err or "A gift needs a name.", "error")
-        return redirect(url_for("mine"))
+    if err:
+        return autosave_reply(False, err, to="mine")
+    if not f["title"]:
+        return autosave_reply(False, "A gift needs a name.", to="mine")
     d = db()
     d.execute("UPDATE items SET title=?, url=?, price=?, image=?, note=? WHERE id=?",
               (f["title"], f["url"], f["price"], f["image"], f["note"], item_id))
     d.commit()
-    flash("Saved.", "ok")
-    return redirect(url_for("mine"))
+    return autosave_reply(True, "Saved.", to="mine", image=f["image"])
 
 
 @app.post("/mine/items/<int:item_id>/delete")

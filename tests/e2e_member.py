@@ -36,14 +36,51 @@ try:
         check("Welcome, Ann" in ann.inner_text("h1"), "welcome message uses her name")
         names = ann.locator(".nrow strong").all_inner_texts()
         check(names == ["Ann", "Bob", "Cara"], f"landing lists everyone ({names})")
-        check(ann.locator(".nrow.me .go").inner_text().startswith("Edit my list"), "her own row says 'Edit my list'")
+        check(ann.locator(".nrow.me a:has-text('Edit my list')").count() == 1, "her own row has 'Edit my list'")
+        link = ann.locator(".nrow.me input[readonly]").input_value()
+        ann_slug = link.rsplit("/", 1)[1]
+        check("/list/" in link and ann.locator(".nrow.me button:has-text('Copy link')").count() == 1,
+              "her row shows a copyable link to her public list")
+        ann.click(".nrow.me button:has-text('Copy link')")
+        check(ann.locator(".nrow.me button.btn.small").first.inner_text() == "Copied!", "Copy link button confirms 'Copied!'")
+        check(ann.locator(".nrow.me a:has-text('Text it')").get_attribute("href").startswith("sms:"), "Text it opens messages")
 
-        # Ann adds a gift on her editable list
-        ann.click(".nrow.me"); ann.wait_for_selector("h1:has-text('My wish list')")
-        ann.fill("input.f-title", "Red Scarf"); ann.fill("input.f-price", "$25")
-        ann.click("#add-form button[type=submit]"); ann.wait_for_selector(".item .title:text-is('Red Scarf')")
-        check(ann.locator(".item .title").first.inner_text() == "Red Scarf", "gift added on her editable list")
-        ann_slug = ann.locator("input[readonly]").input_value().rsplit("/", 1)[1]
+        # her editable list: simple page, add a gift (no reload), then edit it by just typing
+        ann.click(".nrow.me a:has-text('Edit my list')"); ann.wait_for_selector("h1:has-text('My wish list')")
+        check("Your gifts" not in ann.inner_text("main") and ann.locator("input[readonly]").count() == 0,
+              "My list page has no 'Your gifts' header or share box")
+        ann.evaluate("window.__noReload = true")
+        ann.fill("#add-form input.f-title", "Red Scarf"); ann.fill("#add-form input.f-price", "$25")
+        ann.click("#add-form button[type=submit]")
+        ann.wait_for_selector(".item.editable input[name=title]")
+        check(ann.locator(".item.editable input[name=title]").first.input_value() == "Red Scarf", "gift appears as an open, editable entry")
+        check(ann.evaluate("window.__noReload === true"), "adding a gift doesn't reload the page")
+        check(ann.evaluate("document.activeElement && document.activeElement.id") == "add-url", "link box refocused for the next gift")
+        ann.fill("#add-form input.f-title", "Warm Mug"); ann.click("#add-form button[type=submit]")
+        ann.wait_for_selector(".item.editable >> nth=1")
+        check(ann.locator(".item.editable").count() == 2, "full list shown (two gifts)")
+
+        # edit an old entry just by typing; it saves itself
+        t = ann.locator(".item.editable input[name=title]").first
+        with ann.expect_response(lambda r: "/edit" in r.url):
+            t.fill("Red Wool Scarf")
+        check("Saved" in ann.inner_text("#toast"), "typing in an old entry shows Saved")
+        with ann.expect_response(lambda r: "/edit" in r.url):
+            ann.locator(".item.editable input[name=price]").first.fill("$30")
+        ann.reload()
+        check(ann.locator(".item.editable input[name=title]").first.input_value() == "Red Wool Scarf"
+              and ann.locator(".item.editable input[name=price]").first.input_value() == "$30", "edits persisted after reload")
+        # an empty name is refused, not saved
+        with ann.expect_response(lambda r: "/edit" in r.url):
+            ann.locator(".item.editable input[name=title]").nth(1).fill("")
+        check(ann.locator("#toast.bad").count() == 1, "clearing a name shows an error instead of saving")
+        ann.reload()
+        check(ann.locator(".item.editable input[name=title]").nth(1).input_value() == "Warm Mug", "old name kept after the refused edit")
+        # remove with confirm
+        ann.once("dialog", lambda d: d.accept())
+        ann.locator(".item.editable button:has-text('Remove')").nth(1).click()
+        ann.wait_for_function("document.querySelectorAll('.item.editable').length === 1")
+        check(ann.locator(".item.editable").count() == 1, "removing a gift works in place")
 
         # she tries her own public address: bounced back to the editable list
         ann.goto(B + "/list/" + ann_slug)

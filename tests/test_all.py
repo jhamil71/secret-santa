@@ -338,8 +338,13 @@ def test_public_wish_list_page(client, monkeypatch):
     assert "Already bought" not in mine and "You bought" not in mine and ">I bought this</button>" not in mine
     assert bob.post(f"/list/{slug}/bought/{item_id}", data={"csrf": _csrf(bob)}).status_code == 404
     assert _bought_by(item_id) == f"p{p['Cara']['id']}"
-    # his editable list offers the share link
-    assert f"/list/{slug}" in mine and "sms:?&amp;body=" in mine
+    # his editable list is simple: every gift open for editing, and no share box or "Your gifts" heading
+    assert 'name="title" value="Cool Lamp"' in mine and 'value="warm white"' in mine
+    assert "Your gifts" not in mine and "Preview" not in mine and "readonly" not in mine
+    # the copyable share link lives on his landing page, as a Copy button and a Text button
+    home = bob.get("/").data.decode()
+    assert f'value="http://localhost/list/{slug}"' in home and f'data-copy="http://localhost/list/{slug}"' in home
+    assert "sms:?&amp;body=" in home and "Copy link" in home
 
     # CSRF protection applies to the public toggle too
     assert _visitor().post(f"/list/{slug}/bought/{item_id}").status_code == 400
@@ -488,3 +493,41 @@ def test_owner_edits_own_list_only(client):
     assert rows().execute("SELECT title, price FROM items").fetchone()[:] == ("Red Scarf", "$25")
     post(ann, f"/mine/items/{item_id}/delete")
     assert rows().execute("SELECT COUNT(*) FROM items").fetchone()[0] == 0
+
+
+def test_my_list_is_fully_editable_with_autosave(client):
+    post(client, "/admin/people", name="Ann", phone="555 100 0000")
+    post(client, "/admin/people", name="Bob", phone="555 100 0001")
+    ann, bob = member(phone="555 100 0000"), member(phone="555 100 0001")
+    post(ann, "/mine/items", title="Scarf", url="https://shop.example/scarf", price="$20", image="", note="red")
+    post(ann, "/mine/items", title="Mug", url="", price="", image="", note="")
+    ids = [r[0] for r in rows().execute("SELECT id FROM items ORDER BY id")]
+
+    # every existing gift is shown open, with its own editable fields and no Save button needed
+    page = ann.get("/mine").data.decode()
+    for title in ("Scarf", "Mug"):
+        assert f'name="title" value="{title}"' in page
+    assert page.count("data-autosave") == 2 and "Your gifts" not in page
+
+    def jpost(c, path, **data):
+        return c.post(path, data={"csrf": _csrf(c), **data}, headers=JSON)
+
+    # old entries autosave (JSON), including the picture, and the change really sticks
+    r = jpost(ann, f"/mine/items/{ids[0]}/edit", title="Red Scarf", price="$25", url="https://shop.example/scarf",
+              image="https://img.example/scarf.png", note="wool")
+    assert r.status_code == 200 and r.get_json() == {"ok": True, "message": "Saved.", "image": "https://img.example/scarf.png"}
+    row = rows().execute("SELECT title, price, note, image FROM items WHERE id=?", (ids[0],)).fetchone()
+    assert tuple(row) == ("Red Scarf", "$25", "wool", "https://img.example/scarf.png")
+    assert "Red Scarf" in ann.get("/mine").data.decode()
+
+    # clearing the name or entering a bad link is refused with a clear message and changes nothing
+    r = jpost(ann, f"/mine/items/{ids[0]}/edit", title="", price="$25", url="", image="", note="")
+    assert r.status_code == 400 and "needs a name" in r.get_json()["error"]
+    r = jpost(ann, f"/mine/items/{ids[0]}/edit", title="Red Scarf", url="javascript:alert(1)", price="", image="", note="")
+    assert r.status_code == 400 and "link" in r.get_json()["error"].lower()
+    assert rows().execute("SELECT title FROM items WHERE id=?", (ids[0],)).fetchone()[0] == "Red Scarf"
+
+    # nobody else can edit it, and the edit shows on her public list for everyone
+    assert jpost(bob, f"/mine/items/{ids[0]}/edit", title="Hacked", url="", price="", image="", note="").status_code == 404
+    slug = rows().execute("SELECT list_slug FROM people WHERE name='Ann'").fetchone()[0]
+    assert "Red Scarf" in bob.get(f"/list/{slug}").data.decode()

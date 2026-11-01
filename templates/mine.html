@@ -1,22 +1,6 @@
 {% extends "base.html" %}
 {% block title %}My wish list · Secret Santa{% endblock %}
 
-{% macro item_fields(item=None) %}
-  <label>Link to the gift</label>
-  <input type="url" name="url" class="f-url" value="{{ item.url if item and item.url else '' }}" placeholder="Paste a product link, e.g. https://…">
-  <div class="muted f-status"></div>
-  <div class="row">
-    <div><label>Name</label><input type="text" name="title" class="f-title" value="{{ item.title if item else '' }}" maxlength="200" placeholder="Fills in from the link"></div>
-    <div style="flex:0 1 140px"><label>Price</label><input type="text" name="price" class="f-price" value="{{ item.price if item and item.price else '' }}" maxlength="30" placeholder="$25.00"></div>
-  </div>
-  <label>Note (size, color, anything helpful)</label>
-  <input type="text" name="note" value="{{ item.note if item and item.note else '' }}" maxlength="500">
-  <details style="margin-top:8px"><summary>Picture</summary>
-    <label>Image link</label>
-    <input type="url" name="image" class="f-image" value="{{ item.image if item and item.image else '' }}" placeholder="Fills in from the link; paste your own if it's missing">
-  </details>
-{% endmacro %}
-
 {% macro thumb(item) %}
   {% if item.image %}<img class="thumb" src="{{ item.image }}" alt="" loading="lazy" referrerpolicy="no-referrer">
   {% else %}<div class="thumb">🎁</div>{% endif %}
@@ -26,81 +10,102 @@
 <p><a href="{{ url_for('index') }}">← Back to everyone's lists</a></p>
 <h1>My wish list</h1>
 
-<div class="card" id="mine">
-  <h2>🎁 Your gifts</h2>
-  <p class="muted">Your list has its own page that you can send to anyone. It shows only your gifts, with nothing about Secret Santa. Anyone with the link can check off what they bought, but <strong>you won't see the checkmarks</strong> on your own list. To peek at it without spoilers, use Preview below on this device.</p>
-  <div class="linkbox">
-    <input type="text" readonly value="{{ share_link }}" onclick="this.select()" aria-label="Your wish list link" style="flex:1">
-    <button class="btn ghost small" type="button" data-copy="{{ share_link }}">Copy</button>
-  </div>
-  <div class="actions" style="margin-bottom:12px">
-    <a class="btn small" href="sms:?&amp;body={{ ('Here is my wish list: ' ~ share_link)|urlencode }}">💬 Text it</a>
-    <a class="btn ghost small" href="{{ share_link }}" target="_blank" rel="noopener noreferrer">Preview ↗</a>
-  </div>
-
-  {% for it in mine %}
-  <div class="item">
-    {{ thumb(it) }}
-    <div class="body">
-      <div class="title">{{ it.title }}</div>
-      {% if it.price %}<div class="price">{{ it.price }}</div>{% endif %}
-      {% if it.note %}<div class="muted">{{ it.note }}</div>{% endif %}
-      {% if it.url %}<div class="muted"><a href="{{ it.url }}" target="_blank" rel="noopener noreferrer">Link ↗</a></div>{% endif %}
-      <div class="actions">
-        <details style="flex:1 1 100%">
-          <summary>Edit</summary>
-          <form method="post" action="{{ url_for('edit_item', item_id=it.id) }}">
-            <input type="hidden" name="csrf" value="{{ csrf }}">
-            {{ item_fields(it) }}
-            <p><button class="btn small" type="submit">Save changes</button></p>
-          </form>
-        </details>
-        <form method="post" action="{{ url_for('delete_item', item_id=it.id) }}" onsubmit="return confirm('Remove this from your list?')">
-          <input type="hidden" name="csrf" value="{{ csrf }}">
-          <button class="btn red small" type="submit">Remove</button>
-        </form>
+{# Every gift is shown open and editable. Changes save by themselves. #}
+{% for it in mine %}
+<div class="item editable" id="item{{ it.id }}">
+  {{ thumb(it) }}
+  <div class="body">
+    <form method="post" action="{{ url_for('edit_item', item_id=it.id) }}" data-autosave>
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <label>Gift</label>
+      <input type="text" name="title" value="{{ it.title }}" maxlength="200" required>
+      <div class="row">
+        <div style="flex:0 1 130px"><label>Price</label><input type="text" name="price" value="{{ it.price or '' }}" maxlength="30" placeholder="$25.00"></div>
+        <div><label>Link</label><input type="url" name="url" value="{{ it.url or '' }}" placeholder="https://…"></div>
       </div>
+      <label>Note (size, color, anything helpful)</label>
+      <input type="text" name="note" value="{{ it.note or '' }}" maxlength="500">
+      <details style="margin-top:8px"><summary>Picture link</summary>
+        <input type="url" name="image" value="{{ it.image or '' }}" placeholder="Paste a picture link if the right one didn't load">
+      </details>
+      <noscript><p><button class="btn small" type="submit">Save</button></p></noscript>
+    </form>
+    <div class="actions">
+      <form method="post" action="{{ url_for('delete_item', item_id=it.id) }}" onsubmit="return confirm('Remove “{{ it.title|e }}” from your list?')">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <button class="btn red small" type="submit">Remove</button>
+      </form>
     </div>
   </div>
-  {% else %}
-  <p class="muted">Nothing yet. Add your first idea below.</p>
-  {% endfor %}
+</div>
+{% else %}
+<div class="card"><p class="muted" style="margin:0">Nothing yet. Add your first idea below.</p></div>
+{% endfor %}
 
-  <h2 style="margin-top:22px" id="add">Add a gift idea</h2>
-  <form method="post" action="{{ url_for('add_item') }}" id="add-form">
+<div class="card" id="add">
+  <h2>Add a gift idea</h2>
+  <form method="post" action="{{ url_for('add_item') }}" id="add-form" data-refocus="#add-url">
     <input type="hidden" name="csrf" value="{{ csrf }}">
-    {{ item_fields() }}
+    <label>Link to the gift</label>
+    <input id="add-url" type="url" name="url" class="f-url" placeholder="Paste a product link and the rest fills in">
+    <div class="muted f-status"></div>
+    <div class="row">
+      <div><label>Name</label><input type="text" name="title" class="f-title" maxlength="200" placeholder="Fills in from the link"></div>
+      <div style="flex:0 1 140px"><label>Price</label><input type="text" name="price" class="f-price" maxlength="30" placeholder="$25.00"></div>
+    </div>
+    <label>Note (size, color, anything helpful)</label>
+    <input type="text" name="note" maxlength="500">
+    <details style="margin-top:8px"><summary>Picture link</summary>
+      <input type="url" name="image" class="f-image" placeholder="Fills in from the link; paste your own if it's missing">
+    </details>
     <p><button class="btn" type="submit">Add to my list</button></p>
   </form>
 </div>
+{% endblock %}
 
+{% block scripts %}
+<script src="{{ url_for('static', filename='ui.js') }}"></script>
 <script>
-(function(){
-  var form = document.getElementById('add-form');
-  var url = form.querySelector('.f-url'), title = form.querySelector('.f-title'),
-      price = form.querySelector('.f-price'), image = form.querySelector('.f-image'),
-      status = form.querySelector('.f-status');
-  var last = '';
-  function lookup(){
-    var v = url.value.trim();
-    if(!v || v === last) return;
-    last = v;
+(function () {
+  var PREVIEW = {{ url_for('preview')|tojson }};
+
+  // Add form: pasting a link fills in the name, price and picture (only into empty boxes).
+  function lookup(form) {
+    var url = form.querySelector('.f-url'), title = form.querySelector('.f-title'),
+        price = form.querySelector('.f-price'), image = form.querySelector('.f-image'),
+        status = form.querySelector('.f-status'), v = url.value.trim();
+    if (!v || v === form.dataset.last) return;
+    form.dataset.last = v;
     status.textContent = 'Looking up the product…';
-    fetch({{ url_for('preview')|tojson }} + '?url=' + encodeURIComponent(v))
-      .then(function(r){ return r.json(); })
-      .then(function(d){
-        if(d.title && !title.value) title.value = d.title;
-        if(d.price && !price.value) price.value = d.price;
-        if(d.image && !image.value) image.value = d.image;
+    fetch(PREVIEW + '?url=' + encodeURIComponent(v), { credentials: 'same-origin' })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (d.title && !title.value) title.value = d.title;
+        if (d.price && !price.value) price.value = d.price;
+        if (d.image && !image.value) image.value = d.image;
         var got = [d.title && 'name', d.price && 'price', d.image && 'picture'].filter(Boolean);
-        status.textContent = got.length
-          ? 'Found: ' + got.join(', ') + '. Check it looks right.'
-          : (d.error || 'Nothing found. Fill in the details by hand.');
+        status.textContent = got.length ? 'Found: ' + got.join(', ') + '. Check it looks right.'
+                                        : (d.error || 'Nothing found. Fill in the details by hand.');
       })
-      .catch(function(){ status.textContent = 'Lookup failed. Fill in the details by hand.'; });
+      .catch(function () { status.textContent = 'Lookup failed. Fill in the details by hand.'; });
   }
-  url.addEventListener('change', lookup);
-  url.addEventListener('paste', function(){ setTimeout(lookup, 50); });
+  document.addEventListener('change', function (e) {
+    if (e.target.matches && e.target.matches('#add-form .f-url')) lookup(e.target.form);
+  });
+  document.addEventListener('paste', function (e) {
+    if (e.target.matches && e.target.matches('#add-form .f-url')) setTimeout(function () { lookup(e.target.form); }, 60);
+  });
+
+  // When a picture link changes on an existing gift, update its thumbnail straight away.
+  document.addEventListener('autosaved', function (e) {
+    var f = e.detail.form, d = e.detail.data, card = f.closest('.item');
+    if (!card || !d.ok) return;
+    var old = card.querySelector('.thumb'), fresh;
+    if (d.image) { fresh = document.createElement('img'); fresh.src = d.image; fresh.alt = ''; fresh.referrerPolicy = 'no-referrer'; }
+    else { fresh = document.createElement('div'); fresh.textContent = '🎁'; }
+    fresh.className = 'thumb';
+    old.replaceWith(fresh);
+  });
 })();
 </script>
 {% endblock %}
