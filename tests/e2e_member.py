@@ -98,6 +98,7 @@ try:
         bob.click("a.person:has(.pname:text-is('Ann'))")
         bob.wait_for_selector("h1:has-text(\"Ann's wish list\")")
         check(bob.locator("a.mast-link").count() == 1, "Bob has a way back to everyone's lists")
+        check(bob.locator('.fog-btn').count() == 1, 'wish list starts behind the fog'); bob.click('.fog-btn'); bob.wait_for_timeout(1700)
         bob.click("button:text-is('I bought this')")
         bob.wait_for_selector("text=You bought this")
         ann.goto(B + "/mine")
