@@ -248,3 +248,7 @@ a.person:hover::after { color: var(--cranberry); }
 .masthead.small .who { margin-bottom: .9rem; }
 
 .fog-btn small { display: block; margin-top: .25rem; font-size: .78rem; font-weight: 400; opacity: .9; }
+
+/* instant reveal, and a thinner fog you can see through */
+.fog-wrap.fogged > .item { filter: blur(3px); opacity: .9; }
+.fog-wrap.fogged::before { background: radial-gradient(ellipse at 30% 20%, rgba(242,244,239,.35), rgba(230,234,225,.22) 60%, rgba(242,244,239,.35)); }

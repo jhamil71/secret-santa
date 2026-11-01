@@ -20,8 +20,7 @@
   b.type = "button"; b.className = "btn fog-btn"; b.innerHTML = "Reveal wish list<small>May contain spoilers for what&rsquo;s been bought!</small>";
   wrap.appendChild(b);
   b.addEventListener("click", function () {
-    wrap.classList.remove("fogged"); wrap.classList.add("clearing");
-    setTimeout(function () { b.remove(); wrap.classList.remove("clearing"); }, 1400);
+    wrap.classList.remove("fogged"); b.remove();
   });
   if (location.hash && document.querySelector(location.hash)) { wrap.classList.remove("fogged"); b.remove(); }  // coming back after a tap
 })();
