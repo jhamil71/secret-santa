@@ -79,7 +79,7 @@ CREATE TABLE IF NOT EXISTS items(
 CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT);
 """
 DEFAULTS = {
-    "year": str(datetime.now().year), "budget": "", "event_note": "",
+    "year": str(datetime.now().year),
     "avoid_swaps": "1", "avoid_last": "1", "drawn_at": "",
 }
 
@@ -316,8 +316,7 @@ def index():
         "SELECT p.id, p.name, p.list_slug, (SELECT COUNT(*) FROM items i WHERE i.person_id=p.id) AS n_items "
         "FROM people p ORDER BY LOWER(p.name)").fetchall()
     return render_template("home.html", me=me, people=people, target=target, drawn=is_drawn(),
-                           budget=get_setting("budget"), event_note=get_setting("event_note"),
-                           share_link=list_link(me["list_slug"]))
+                           year=int(get_setting("year")), share_link=list_link(me["list_slug"]))
 
 
 @app.post("/login")
@@ -466,10 +465,11 @@ def edit_person(pid):
 @app.post("/admin/settings")
 @admin_required
 def save_settings():
-    set_setting("budget", clean_text(request.form.get("budget"), 40))
-    set_setting("event_note", clean_text(request.form.get("event_note"), 300))
-    set_setting("avoid_swaps", "1" if request.form.get("avoid_swaps") else "0")
-    set_setting("avoid_last", "1" if request.form.get("avoid_last") else "0")
+    """Autosaves one on/off option at a time (each checkbox lives in its own form, in its own section)."""
+    field = request.form.get("field")
+    if field not in ("avoid_swaps", "avoid_last"):
+        return autosave_reply(False, "Unknown setting.")
+    set_setting(field, "1" if request.form.get(field) else "0")
     db().commit()
     return autosave_reply(True, "Settings saved.")
 

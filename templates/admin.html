@@ -102,11 +102,25 @@
     <button class="btn" type="submit">Add rule</button>
   </form>
   {% endif %}
+
+  <form method="post" action="{{ url_for('save_settings') }}" data-autosave style="margin-top:14px;padding-top:10px;border-top:1px solid var(--line)">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input type="hidden" name="field" value="avoid_swaps">
+    <label class="check"><input type="checkbox" name="avoid_swaps" value="1" {% if settings.avoid_swaps == '1' %}checked{% endif %}> Avoid direct swaps (A gets B and B gets A)</label>
+    <noscript><button class="btn small" type="submit">Save</button></noscript>
+  </form>
 </div>
 
 {# ---------- 3. Last year ---------- #}
 <div class="card">
   <h2>3 · Last year's matches ({{ year - 1 }})</h2>
+  <form method="post" action="{{ url_for('save_settings') }}" data-autosave>
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input type="hidden" name="field" value="avoid_last">
+    <label class="check"><input type="checkbox" name="avoid_last" value="1" {% if settings.avoid_last == '1' %}checked{% endif %}> Avoid last year's matches</label>
+    <noscript><button class="btn small" type="submit">Save</button></noscript>
+  </form>
+  <div id="last-year-body" {% if settings.avoid_last != '1' %}class="dim" inert{% endif %}>
   <p class="muted">Pick who each person gave to last year and the draw will avoid repeating it (saves as you choose). After this year's draw, the "Start next year" button saves everything automatically.</p>
   {% if people|length >= 2 and not drawn %}
   <form method="post" action="{{ url_for('save_history') }}" data-autosave>
@@ -131,27 +145,12 @@
   {% else %}
   <p class="muted">Add at least two people first.</p>
   {% endif %}
+  </div>
 </div>
 
-{# ---------- 4. Settings ---------- #}
+{# ---------- 4. Draw ---------- #}
 <div class="card">
-  <h2>4 · Details &amp; options</h2>
-  <form method="post" action="{{ url_for('save_settings') }}" data-autosave>
-    <input type="hidden" name="csrf" value="{{ csrf }}">
-    <div class="row">
-      <div><label>Gift budget</label><input type="text" name="budget" value="{{ settings.budget }}" placeholder="e.g. $40" maxlength="40"></div>
-      <div><label>Note shown to everyone</label><input type="text" name="event_note" value="{{ settings.event_note }}" placeholder="e.g. Exchange at Grandma's on Dec 25" maxlength="300"></div>
-    </div>
-    <label class="check"><input type="checkbox" name="avoid_last" value="1" {% if settings.avoid_last == '1' %}checked{% endif %}> Avoid last year's matches</label>
-    <label class="check"><input type="checkbox" name="avoid_swaps" value="1" {% if settings.avoid_swaps == '1' %}checked{% endif %}> Avoid direct swaps (A gets B and B gets A)</label>
-    <noscript><button class="btn" type="submit">Save</button></noscript>
-    <p class="muted" style="margin-bottom:0">Changes here save automatically.</p>
-  </form>
-</div>
-
-{# ---------- 5. Draw ---------- #}
-<div class="card">
-  <h2>5 · Draw names</h2>
+  <h2>4 · Draw names</h2>
   {% if drawn %}
     <p><span class="pill green">Drawn {{ drawn_at }}</span></p>
     <p class="muted">Everyone can now open their link and see who they're buying for. You can't see the matches here, so you're surprised too.</p>
@@ -177,6 +176,15 @@
 {% block scripts %}
 <script src="{{ url_for('static', filename='ui.js') }}"></script>
 <script>
+// Admin-only: "Avoid last year's matches" off => the whole last-year section is greyed out and locked.
+document.addEventListener('change', function (e) {
+  if (!e.target || e.target.name !== 'avoid_last') return;
+  var body = document.getElementById('last-year-body');
+  if (!body) return;
+  body.classList.toggle('dim', !e.target.checked);
+  if (e.target.checked) { body.removeAttribute('inert'); } else { body.setAttribute('inert', ''); }
+});
+
 // Admin-only: when a person is renamed, update their name everywhere on the page straight away.
 document.addEventListener('autosaved', function (e) {
   var d = e.detail.data, f = e.detail.form;

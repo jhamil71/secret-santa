@@ -370,10 +370,20 @@ def test_autosave_json_replies(client):
         data["csrf"] = _csrf(client)
         return client.post(path, data=data, headers=JSON)
 
-    r = jpost("/admin/settings", budget="$50", event_note="At Grandma's", avoid_swaps="1")
+    def setting(key):
+        return app_module.sqlite3.connect(app_module.DB_PATH).execute(
+            "SELECT value FROM settings WHERE key=?", (key,)).fetchone()[0]
+
+    # each checkbox saves on its own, without touching the other
+    assert setting("avoid_swaps") == "1" and setting("avoid_last") == "1"
+    r = jpost("/admin/settings", field="avoid_last")                      # unticked: box not sent
     assert r.status_code == 200 and r.get_json()["ok"] is True
-    assert app_module.sqlite3.connect(app_module.DB_PATH).execute(
-        "SELECT value FROM settings WHERE key='budget'").fetchone()[0] == "$50"
+    assert setting("avoid_last") == "0" and setting("avoid_swaps") == "1"
+    jpost("/admin/settings", field="avoid_swaps")
+    assert setting("avoid_swaps") == "0"
+    jpost("/admin/settings", field="avoid_last", avoid_last="1")
+    assert setting("avoid_last") == "1" and setting("avoid_swaps") == "0"
+    assert jpost("/admin/settings", field="budget", budget="$5").status_code == 400  # budget/note aren't settings any more
 
     r = jpost(f"/admin/people/{pid}/edit", name="Annie", phone="555 111 2222")
     assert r.get_json() == {"ok": True, "message": "Saved Annie.", "name": "Annie", "phone": "5551112222"}
@@ -388,7 +398,7 @@ def test_autosave_json_replies(client):
     assert rows().execute("SELECT receiver_id FROM history WHERE giver_id=?", (pid,)).fetchone()[0] == bid
 
     # without the JSON headers the same routes still work as ordinary form posts
-    r = client.post("/admin/settings", data={"csrf": _csrf(client), "budget": "$60"})
+    r = client.post("/admin/settings", data={"csrf": _csrf(client), "field": "avoid_last", "avoid_last": "1"})
     assert r.status_code == 302
 
 
@@ -531,3 +541,47 @@ def test_my_list_is_fully_editable_with_autosave(client):
     assert jpost(bob, f"/mine/items/{ids[0]}/edit", title="Hacked", url="", price="", image="", note="").status_code == 404
     slug = rows().execute("SELECT list_slug FROM people WHERE name='Ann'").fetchone()[0]
     assert "Red Scarf" in bob.get(f"/list/{slug}").data.decode()
+
+
+def test_organizer_page_layout(client):
+    post(client, "/admin/people", name="Ann", phone="555 100 0000")
+    post(client, "/admin/people", name="Bob", phone="555 100 0001")
+    page = client.get("/admin").data.decode()
+    # the two options live inside their own sections, and the old "Details & options" section is gone
+    assert "Details &amp; options" not in page and "Gift budget" not in page and "Note shown to everyone" not in page
+    i2, i3, i4 = page.index("2 · Who can"), page.index("3 · Last year"), page.index("4 · Draw names")
+    assert i2 < page.index("Avoid direct swaps") < i3 < page.index("Avoid last year") < i4
+    assert "5 · Draw" not in page
+    # last-year section is live while the option is ticked, greyed out and locked when it is not
+    assert 'id="last-year-body" ' in page
+    assert 'class="dim"' not in page
+    client.post("/admin/settings", data={"csrf": _csrf(client), "field": "avoid_last"})
+    off = client.get("/admin").data.decode()
+    assert 'id="last-year-body" class="dim" inert' in off
+    assert "Pick who each person gave to last year" in off  # still there, just greyed out
+
+
+def test_draw_ignores_last_year_when_option_is_off(client):
+    for n in ("Ann", "Bob", "Cara"):
+        post(client, "/admin/people", name=n, phone=f"555 100 00{ord(n[0]) % 100:02d}")
+    ids = {r["name"]: r["id"] for r in rows().execute("SELECT * FROM people")}
+    # block two of the three one-directional rotations so only Ann>Bob>Cara>Ann is left...
+    for a, b in [("Ann", "Cara"), ("Bob", "Ann"), ("Cara", "Bob")]:
+        post(client, "/admin/exclusions", a=ids[a], b=ids[b])
+    # ...then say that is exactly what happened last year
+    post(client, "/admin/history", **{f"last_{ids['Ann']}": ids["Bob"], f"last_{ids['Bob']}": ids["Cara"],
+                                      f"last_{ids['Cara']}": ids["Ann"]})
+    r = post(client, "/admin/draw")
+    assert b"No valid draw" in r.data and rows().execute("SELECT COUNT(*) FROM assignments").fetchone()[0] == 0
+    client.post("/admin/settings", data={"csrf": _csrf(client), "field": "avoid_last"})   # turn the option off
+    r = post(client, "/admin/draw")
+    assert b"Drawn" in r.data and rows().execute("SELECT COUNT(*) FROM assignments").fetchone()[0] == 3
+
+
+def test_landing_message_is_fixed_text(client):
+    post(client, "/admin/people", name="Ann", phone="555 100 0000")
+    page = member(phone="555 100 0000").get("/").data.decode()
+    assert "Welcome to the" in page and "Hamilton-Lassally Secret Santa!" in page
+    assert "your giftee may be using this wish list for outside folks too" in page
+    assert "Try to spend no more than $200. Have fun!" in page
+    assert "Budget:" not in page

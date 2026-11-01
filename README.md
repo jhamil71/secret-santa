@@ -54,6 +54,7 @@ If you don't set `ADMIN_PASSWORD`, one is generated on first start, printed in t
 
 ## Good to know
 
+- **The welcome message** (with the $200 limit) on the family landing page is plain text in `templates/home.html`. Edit it there to change the wording or amount.
 - **Phone-number sign-in is convenience, not strong security.** Anyone who knows a family member's number could sign in as them and see who they drew. That is fine for a family exchange; attempts are rate limited, and the site isn't listed anywhere. Real text-message codes would need a paid texting service, so ask if you want that later.
 
 - **Back up the `data/` folder.** It holds the database.

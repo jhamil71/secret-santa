@@ -4,12 +4,9 @@
 {% block content %}
 <h1>Welcome, {{ me.name }} 🎄</h1>
 
-{% if budget or event_note %}
-<div class="card">
-  {% if budget %}<div><strong>Budget:</strong> {{ budget }}</div>{% endif %}
-  {% if event_note %}<div>{{ event_note }}</div>{% endif %}
+<div class="card welcome">
+  <p style="margin:0">Welcome to the {{ year }} Hamilton-Lassally Secret Santa! If you see something on your giftee's wish list that you'd love to get them, don't wait - your giftee may be using this wish list for outside folks too! Try to spend no more than $200. Have fun!</p>
 </div>
-{% endif %}
 
 <div class="card" id="buying">
   <h2>🤫 Who you're buying for</h2>

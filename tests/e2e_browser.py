@@ -36,22 +36,29 @@ try:
         check("Added Dan" in pg.inner_text("#toast"), "toast confirms the add")
         check(pg.locator(".flash").count() == 0, "no banner pushing the page down")
 
-        # settings autosave: type, pause, no Save button needed
-        pg.fill("input[name=budget]", "$40")
-        pg.wait_for_function("document.getElementById('toast').textContent.includes('Saved')")
-        pg.fill("input[name=event_note]", "Dec 25 at Grandma's"); pg.keyboard.press("Tab")
-        time.sleep(1.2)
-        check(pg.locator("form[data-autosave] button:visible").count() == 0, "no Save buttons visible")
+        # options live in their sections; "Avoid last year's matches" off greys out that whole section
+        check("Details & options" not in pg.inner_text("main") and pg.locator("input[name=budget]").count() == 0,
+              "old Details & options section is gone")
+        body = pg.locator("#last-year-body")
+        check(pg.is_checked("input[name=avoid_last]") and "dim" not in (body.get_attribute("class") or ""),
+              "last-year section is active while 'Avoid last year's matches' is ticked")
+        with pg.expect_response(lambda r: r.url.endswith("/admin/settings")):
+            pg.uncheck("input[name=avoid_last]")
+        check("dim" in (body.get_attribute("class") or "") and body.get_attribute("inert") is not None,
+              "unticking greys out and locks the whole last-year section instantly")
+        check(pg.evaluate("window.__noReload === true"), "no page reload when toggling")
         pg.reload(); pg.wait_for_selector("text=Organizer dashboard")
-        check(pg.input_value("input[name=budget]") == "$40" and "Grandma" in pg.input_value("input[name=event_note]"),
-              "budget and note persisted after reload")
-        pg.evaluate("window.__noReload = true")
+        check(not pg.is_checked("input[name=avoid_last]") and "dim" in (pg.locator("#last-year-body").get_attribute("class") or ""),
+              "greyed-out state persisted after reload")
+        pg.check("input[name=avoid_last]")
+        pg.wait_for_function("!document.getElementById('last-year-body').classList.contains('dim')")
+        time.sleep(0.6)
 
-        # checkbox autosaves immediately
-        pg.uncheck("input[name=avoid_swaps]")
-        pg.wait_for_function("document.getElementById('toast').textContent.includes('Saved')")
+        with pg.expect_response(lambda r: r.url.endswith("/admin/settings")):
+            pg.uncheck("input[name=avoid_swaps]")
         pg.reload(); pg.wait_for_selector("text=Organizer dashboard")
-        check(not pg.is_checked("input[name=avoid_swaps]"), "checkbox change persisted")
+        check(not pg.is_checked("input[name=avoid_swaps]") and pg.is_checked("input[name=avoid_last]"),
+              "swap option saved on its own without touching the last-year option")
         pg.check("input[name=avoid_swaps]"); time.sleep(0.6); pg.evaluate("window.__noReload = true")
 
         # couple rule: adds in place
