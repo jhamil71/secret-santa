@@ -21,23 +21,9 @@
   <p>Don’t wait if you see something on your giftee’s wish list that you’d love to get them - your giftee may be sharing this wish list with outside folks too! Try to spend no more than $200. Have fun!</p>
 </section>
 
-<section class="section" id="buying">
-  <h2>Your giftee</h2>
-  {% if target %}
-    <details class="tag-wrap">
-      <summary class="tag">
-        <span class="tag-to">To:</span>
-        <span class="tag-name"><span class="when-closed">Tap to open</span><span class="when-open">{{ target.name }}</span></span>
-        <span class="tag-from">From: your Secret Santa</span>
-      </summary>
-    </details>
-    <p class="tag-link"><a href="{{ url_for('public_list', slug=target.list_slug) }}">See {{ target.name }}'s wish list</a></p>
-  {% elif drawn %}
-    <p class="quiet-note">Names were drawn, but you weren't part of the draw. Let the organizer know.</p>
-  {% else %}
-    <p class="quiet-note">Names haven't been drawn yet. Add a few ideas to your own list and browse everyone else's in the meantime.</p>
-  {% endif %}
-</section>
+{% if drawn and not target %}
+<p class="quiet-note">Names were drawn, but you weren't part of the draw. Let the organizer know.</p>
+{% endif %}
 
 <section class="section" id="everyone">
   <h2>The family</h2>
@@ -45,21 +31,10 @@
     {% for p in people %}
       {% if p.id == me.id %}
       <li class="you">
-        <div class="you-head">
-          <span class="pname">{{ p.name }} (you)</span>
-          <span class="pcount">{{ p.n_items }} gift{{ '' if p.n_items == 1 else 's' }}</span>
-        </div>
-        <div class="share">
-          <p class="share-label">Your shareable link</p>
-          <div class="linkbox">
-            <input type="text" readonly value="{{ share_link }}" onclick="this.select()" aria-label="Link to your wish list">
-            <button class="btn small" type="button" data-copy="{{ share_link }}">Copy link</button>
-          </div>
-        </div>
-        <div class="actions">
-          <a class="btn small" href="{{ url_for('mine') }}">Edit my list</a>
-        </div>
-        <p class="muted" style="margin:.8rem 0 0">Anyone with this link can see your list and check off what they bought. You never see which.</p>
+        <span class="pname">{{ p.name }} <span class="youtag">(you)</span></span>
+        <span class="pcount">{{ p.n_items }} gift{{ '' if p.n_items == 1 else 's' }}</span>
+        <a class="copy" href="{{ url_for('mine') }}">Edit list</a>
+        <button class="copy" type="button" data-copy="{{ share_link }}" aria-label="Copy your wish list link">Copy link</button>
       </li>
       {% else %}
       <li class="other{{ ' giftee' if target and p.id == target.id }}">

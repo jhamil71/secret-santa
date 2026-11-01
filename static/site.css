@@ -260,3 +260,11 @@ a.person:hover::after { color: var(--cranberry); }
 .people > li.giftee, .people > li.giftee:nth-child(even) { background: #bfd3bc; }
 .people > li.giftee .pname { font-weight: 700; }
 .people > li.you, .people > li.you:nth-child(even) { background: #f3ead8; }
+
+.people > li.you { display: flex; align-items: baseline; gap: .6rem; padding: .95rem .2rem .95rem .7rem; border-left: 5px solid var(--kraft-dark); }
+.people > li.you .pname { flex: 1; min-width: 0; }
+.people > li.you .copy { margin-left: .2rem; }
+.people a.copy { font-family: var(--sans); }
+.youtag { font: 400 .85rem var(--sans); color: var(--muted); white-space: nowrap; }
+.people > li.you { gap: .45rem; }
+.people > li.you .pcount { font-size: .85rem; }

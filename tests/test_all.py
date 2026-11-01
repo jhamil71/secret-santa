@@ -195,9 +195,10 @@ def test_full_flow(client, monkeypatch):
             else:
                 assert f'href="/list/{slugs[other]}"' in home
         assert 'href="/mine"' in home
-        # your drawn person is revealed, with a link to their list
+        # your drawn person is the one highlighted row (and only that row), linking to their list
         target = name_of[giver_of[ids[n]]]
-        assert target in home and f"See {target}" in home
+        assert home.count("other giftee") == 1
+        assert f'class="other giftee">\n        <a class="person" href="/list/{slugs[target]}"' in home
         # everyone but Bob sees Bob's gift on his public list
         if n != "Bob":
             page = me.get(f"/list/{slugs['Bob']}").data.decode()
@@ -346,7 +347,8 @@ def test_public_wish_list_page(client, monkeypatch):
     assert "Your gifts" not in mine and "Preview" not in mine and "readonly" not in mine
     # the copyable share link lives on his landing page, as a Copy button
     home = bob.get("/").data.decode()
-    assert f'value="http://localhost/list/{slug}"' in home and f'data-copy="http://localhost/list/{slug}"' in home
+    assert f'data-copy="http://localhost/list/{slug}"' in home and 'value="http://localhost/list/' not in home
+    assert f'data-copy="http://localhost/list/{slug}"' in mine and "Copy link to my list" in mine
     assert "sms:" not in home and "Text link" not in home and "Copy link" in home
     # everyone else's row has a Copy link button for their public list too
     cara_slug = rows().execute("SELECT list_slug FROM people WHERE id=?", (p["Cara"]["id"],)).fetchone()[0]

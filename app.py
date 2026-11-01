@@ -648,7 +648,7 @@ def person_page(token):
 @member_required
 def mine(me):
     items = db().execute("SELECT * FROM items WHERE person_id=? ORDER BY id", (me["id"],)).fetchall()
-    return render_template("mine.html", me=me, mine=items, now=int(time.time()))
+    return render_template("mine.html", me=me, mine=items, now=int(time.time()), share_link=list_link(me["list_slug"]))
 
 
 @app.route("/list/<slug>")

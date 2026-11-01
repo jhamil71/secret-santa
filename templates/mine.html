@@ -9,6 +9,10 @@
 {% block content %}
 <p><a href="{{ url_for('index') }}">Back to everyone's lists</a></p>
 <h1>My wish list</h1>
+<div class="sharebar">
+  <button class="btn" type="button" data-copy="{{ share_link }}">Copy link to my list</button>
+  <span class="muted">Send it to anyone who wants to give you a gift. You'll never see what's been bought.</span>
+</div>
 <p class="lede">Paste a link and the picture, name, and price may be found for you. Changes save as you type.</p>
 
 {% for it in mine %}
