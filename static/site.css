@@ -246,3 +246,5 @@ a.person:hover::after { color: var(--cranberry); }
 @media (prefers-reduced-motion: reduce) { .fog-wrap.clearing::before, .fog-wrap.clearing > .item { animation: none; } }
 
 .masthead.small .who { margin-bottom: .9rem; }
+
+.fog-btn small { display: block; margin-top: .25rem; font-size: .78rem; font-weight: 400; opacity: .9; }

@@ -17,7 +17,7 @@
   if (!wrap || !wrap.querySelector(".item")) return;
   wrap.classList.add("fogged");
   var b = document.createElement("button");
-  b.type = "button"; b.className = "btn fog-btn"; b.textContent = "Reveal wish list (may contain spoilers for what's been bought!)";
+  b.type = "button"; b.className = "btn fog-btn"; b.innerHTML = "Reveal wish list<small>May contain spoilers for what&rsquo;s been bought!</small>";
   wrap.appendChild(b);
   b.addEventListener("click", function () {
     wrap.classList.remove("fogged"); wrap.classList.add("clearing");
