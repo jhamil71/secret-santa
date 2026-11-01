@@ -179,7 +179,7 @@ a.person:hover::after { color: var(--cranberry); }
   border: 1px solid var(--line); border-radius: 2px;
 }
 .thumb.ph {
-  display: flex; align-items: center; justify-content: center; text-align: center; padding: .4rem;
+  display: flex; align-items: center; justify-content: center; text-align: center; padding: .15rem;
   background: var(--page-deep); color: var(--muted); font-size: .62rem; line-height: 1.25; overflow-wrap: normal; word-break: normal; hyphens: none; overflow: hidden;
 }
 .thumb.ph.finding { animation: finding 1.4s ease-in-out infinite; }
@@ -221,3 +221,26 @@ a.person:hover::after { color: var(--cranberry); }
 .sharebar { display: flex; align-items: center; gap: .8rem 1rem; flex-wrap: wrap; background: var(--paper); border: 1px solid var(--line); border-left: 5px solid var(--cranberry); padding: .9rem 1rem; margin: 0 0 1.4rem; }
 .sharebar .btn { font-size: 1.02rem; padding: .7rem 1.2rem; }
 .sharebar .muted { flex: 1 1 12rem; }
+
+/* public list header: the same masthead, smaller, and the whole thing is a link home */
+.masthead.small .masthead-inner { padding: 1.1rem 1.25rem 1.3rem; }
+.mast-link { color: #fff; text-decoration: none; display: block; }
+.mast-link:hover { color: #fff; }
+.mast-link:hover .mast-title { text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: .2em; }
+.masthead.small .mast-title { display: block; font-size: clamp(1.5rem, 6.5vw, 2.1rem); line-height: 1.1; }
+.masthead.small .mast-year { margin-top: .5rem; font-size: 1.05rem; display: block; }
+
+/* the fog over a wish list */
+.fog-wrap { position: relative; }
+.fog-wrap.fogged > .item { filter: blur(14px); opacity: .55; pointer-events: none; user-select: none; }
+.fog-wrap.fogged { min-height: 14rem; }
+.fog-wrap.fogged::before, .fog-wrap.clearing::before {
+  content: ""; position: absolute; inset: -.5rem -.4rem; z-index: 2; pointer-events: none;
+  background: radial-gradient(ellipse at 30% 20%, rgba(242,244,239,.97), rgba(230,234,225,.85) 60%, rgba(242,244,239,.97));
+}
+.fog-wrap.clearing::before { animation: fog-lift 1.3s ease-in forwards; }
+.fog-wrap.clearing > .item { animation: fog-clear 1.3s ease-out; }
+@keyframes fog-lift { to { opacity: 0; transform: translateY(-1.2rem); } }
+@keyframes fog-clear { from { filter: blur(14px); opacity: .55; } to { filter: none; opacity: 1; } }
+.fog-btn { position: absolute; z-index: 3; left: 50%; top: 5rem; transform: translateX(-50%); padding: .8rem 1.6rem; font-size: 1.05rem; }
+@media (prefers-reduced-motion: reduce) { .fog-wrap.clearing::before, .fog-wrap.clearing > .item { animation: none; } }

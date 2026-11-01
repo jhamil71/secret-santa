@@ -673,7 +673,8 @@ def public_list(slug):
         state = "open" if r["bought_by"] is None else ("mine" if r["bought_by"] == key else "other")
         items.append({**dict(r), "state": state})
     resp = app.make_response(render_template("public_list.html", name=p["name"], slug=slug,
-                                             items=items, logged_in=bool(me), share_link=list_link(slug)))
+                                             items=items, logged_in=bool(me), share_link=list_link(slug),
+                                             year=int(get_setting("year"))))
     resp.headers["X-Robots-Tag"] = "noindex, nofollow"
     resp.headers["Cache-Control"] = "no-store"
     return resp

@@ -97,7 +97,7 @@ try:
         bob.wait_for_selector("h2:has-text('Welcome, Bob')")
         bob.click("a.person:has(.pname:text-is('Ann'))")
         bob.wait_for_selector("h1:has-text(\"Ann's wish list\")")
-        check(bob.locator("a:has-text('Back to everyone')").count() == 1, "Bob has a way back to everyone's lists")
+        check(bob.locator("a.mast-link").count() == 1, "Bob has a way back to everyone's lists")
         bob.click("button:text-is('I bought this')")
         bob.wait_for_selector("text=You bought this")
         ann.goto(B + "/mine")

@@ -7,15 +7,39 @@
 <meta property="og:title" content="{{ name }}'s wish list">
 <meta property="og:description" content="{{ items|length }} gift idea{{ '' if items|length == 1 else 's' }}">
 {% for it in items if it.image %}{% if loop.first %}<meta property="og:image" content="{{ it.image }}">{% endif %}{% endfor %}
+</div>
 {% endblock %}
 
-{# A neutral header: this page is meant to be shared on its own, so no Secret Santa wording or links. #}
+{% block scripts %}
+<script>
+(function () {
+  var wrap = document.getElementById("fog");
+  if (!wrap || !wrap.querySelector(".item")) return;
+  wrap.classList.add("fogged");
+  var b = document.createElement("button");
+  b.type = "button"; b.className = "btn fog-btn"; b.textContent = "Lift the fog";
+  wrap.appendChild(b);
+  b.addEventListener("click", function () {
+    wrap.classList.remove("fogged"); wrap.classList.add("clearing");
+    setTimeout(function () { b.remove(); wrap.classList.remove("clearing"); }, 1400);
+  });
+  if (location.hash && document.querySelector(location.hash)) { wrap.classList.remove("fogged"); b.remove(); }  // coming back after a tap
+})();
+</script>
+{% endblock %}
+
 {% block header %}
-<header class="bar"><span class="wordmark">{{ name }}'s wish list</span></header>
+<header class="masthead small">
+  <div class="masthead-inner">
+    <a class="mast-link" href="{{ url_for('index') }}" aria-label="Back to the Secret Santa home page">
+      <span class="mast-title"><span class="nowrap">Hamilton-</span><span class="nowrap">Lassally</span> Secret Santa</span>
+      <span class="mast-year">{{ year }}</span>
+    </a>
+  </div>
+</header>
 {% endblock %}
 
 {% block content %}
-{% if logged_in %}<p><a href="{{ url_for('index') }}">Back to everyone's lists</a></p>{% endif %}
 <h1>{{ name }}'s wish list</h1>
 <div class="sharebar">
   <button class="btn" type="button" data-copy="{{ share_link }}">Copy link to this list</button>
@@ -23,9 +47,10 @@
 </div>
 
 {% if items %}
-<p class="muted">Bought something? Tap <strong>I bought this</strong> so nobody doubles up. <em>(If this is your own list, please don't peek at the checkmarks: they're spoilers!)</em></p>
+<p class="muted">Bought something? Tap <strong>I bought this</strong> so nobody doubles up.</p>
 {% endif %}
 
+<div class="fog-wrap" id="fog">
 {% for it in items %}
 <div class="item {{ 'bought' if it.state in ('mine', 'other') }}" id="gift{{ it.id }}">
   {% if it.image %}<img class="thumb" src="{{ it.image }}" alt="" loading="lazy" referrerpolicy="no-referrer" data-site="{{ it.url|site }}">
