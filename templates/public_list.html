@@ -17,6 +17,10 @@
 {% block content %}
 {% if logged_in %}<p><a href="{{ url_for('index') }}">Back to everyone's lists</a></p>{% endif %}
 <h1>{{ name }}'s wish list</h1>
+<div class="sharebar">
+  <button class="btn" type="button" data-copy="{{ share_link }}">Copy link to this list</button>
+  <span class="muted">Send it to anyone who wants to give {{ name }} a gift.</span>
+</div>
 
 {% if items %}
 <p class="muted">Bought something? Tap <strong>I bought this</strong> so nobody doubles up. <em>(If this is your own list, please don't peek at the checkmarks: they're spoilers!)</em></p>

@@ -180,7 +180,7 @@ a.person:hover::after { color: var(--cranberry); }
 }
 .thumb.ph {
   display: flex; align-items: center; justify-content: center; text-align: center; padding: .4rem;
-  background: var(--page-deep); color: var(--muted); font-size: .68rem; line-height: 1.25; overflow-wrap: normal; word-break: normal; hyphens: none; overflow: hidden;
+  background: var(--page-deep); color: var(--muted); font-size: .62rem; line-height: 1.25; overflow-wrap: normal; word-break: normal; hyphens: none; overflow: hidden;
 }
 .thumb.ph.finding { animation: finding 1.4s ease-in-out infinite; }
 @keyframes finding { 50% { opacity: .45; } }
@@ -217,3 +217,7 @@ a.person:hover::after { color: var(--cranberry); }
 .people .copy:hover { color: var(--cranberry); }
 .people > li.other .person::after { display: none; }
 .people > li.other .pcount { margin-left: auto; }
+
+.sharebar { display: flex; align-items: center; gap: .8rem 1rem; flex-wrap: wrap; background: var(--paper); border: 1px solid var(--line); border-left: 5px solid var(--cranberry); padding: .9rem 1rem; margin: 0 0 1.4rem; }
+.sharebar .btn { font-size: 1.02rem; padding: .7rem 1.2rem; }
+.sharebar .muted { flex: 1 1 12rem; }

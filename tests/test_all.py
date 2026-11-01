@@ -305,6 +305,7 @@ def test_public_wish_list_page(client, monkeypatch):
     outsider.post(f"/list/{slug}/bought/{item_id}", data={"csrf": _csrf(outsider)})
     assert _bought_by(item_id).startswith("v")
     page = outsider.get(f"/list/{slug}").data.decode()
+    assert f'data-copy="http://localhost/list/{slug}"' in page and "Copy link to this list" in page
     assert "You bought this" in page and "Undo" in page
 
     # A second outsider sees it as already bought, anonymously, and can't take it over or undo it

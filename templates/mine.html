@@ -9,7 +9,7 @@
 {% block content %}
 <p><a href="{{ url_for('index') }}">Back to everyone's lists</a></p>
 <h1>My wish list</h1>
-<p class="lede">Paste a link and the picture, name and price are found for you. Changes save as you type.</p>
+<p class="lede">Paste a link and the picture, name, and price may be found for you. Changes save as you type.</p>
 
 {% for it in mine %}
 <div class="item editable" id="item{{ it.id }}" data-item="{{ it.id }}"
