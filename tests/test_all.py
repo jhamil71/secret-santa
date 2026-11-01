@@ -214,7 +214,7 @@ def test_add_and_edit_person_phone(client):
     post(client, "/admin/people", name="Zed", phone="+1 (555) 222-3333")
     row = rows().execute("SELECT * FROM people").fetchone()
     assert row["phone"] == "+15552223333"
-    post(client, f"/admin/people/{row['id']}/edit", name="Zed Z", phone="555 999 8888", email="")
+    post(client, f"/admin/people/{row['id']}/edit", name="Zed Z", phone="555 999 8888")
     row = rows().execute("SELECT * FROM people").fetchone()
     assert (row["name"], row["phone"]) == ("Zed Z", "5559998888")
 
@@ -356,10 +356,10 @@ def test_autosave_json_replies(client):
     assert app_module.sqlite3.connect(app_module.DB_PATH).execute(
         "SELECT value FROM settings WHERE key='budget'").fetchone()[0] == "$50"
 
-    r = jpost(f"/admin/people/{pid}/edit", name="Annie", phone="555 111 2222", email="")
+    r = jpost(f"/admin/people/{pid}/edit", name="Annie", phone="555 111 2222")
     assert r.get_json() == {"ok": True, "message": "Saved Annie.", "name": "Annie", "phone": "5551112222"}
 
-    r = jpost(f"/admin/people/{pid}/edit", name="Annie", phone="nope", email="")
+    r = jpost(f"/admin/people/{pid}/edit", name="Annie", phone="nope")
     assert r.status_code == 400 and r.get_json()["ok"] is False and "phone" in r.get_json()["error"]
     assert rows().execute("SELECT phone FROM people WHERE id=?", (pid,)).fetchone()[0] == "5551112222"
     assert jpost(f"/admin/people/{pid}/edit", name="", phone="").get_json()["ok"] is False

@@ -56,7 +56,7 @@ if os.environ.get("TRUST_PROXY") == "1":
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS people(
-    id INTEGER PRIMARY KEY, name TEXT NOT NULL, phone TEXT, email TEXT, token TEXT NOT NULL UNIQUE,
+    id INTEGER PRIMARY KEY, name TEXT NOT NULL, phone TEXT, token TEXT NOT NULL UNIQUE,
     list_slug TEXT);
 CREATE TABLE IF NOT EXISTS exclusions(
     giver_id INTEGER NOT NULL REFERENCES people(id) ON DELETE CASCADE,
@@ -347,9 +347,8 @@ def add_person():
     if raw_phone.strip() and not phone:
         flash("That phone number doesn't look right. Use digits only, adding a country code like +1 if needed.", "error")
         return redirect(url_for("admin"))
-    d.execute("INSERT INTO people(name, phone, email, token, list_slug) VALUES (?, ?, ?, ?, ?)",
-              (name, phone, clean_text(request.form.get("email"), 120) or None,
-               secrets.token_urlsafe(12), secrets.token_urlsafe(6)))
+    d.execute("INSERT INTO people(name, phone, token, list_slug) VALUES (?, ?, ?, ?)",
+              (name, phone, secrets.token_urlsafe(12), secrets.token_urlsafe(6)))
     d.commit()
     flash(f"Added {name}.", "ok")
     return redirect(url_for("admin"))
@@ -371,7 +370,7 @@ def delete_person(pid):
 @app.post("/admin/people/<int:pid>/edit")
 @admin_required
 def edit_person(pid):
-    """Fix a name, phone number or email. Allowed at any time (doesn't affect the draw)."""
+    """Fix a name or phone number. Allowed at any time (doesn't affect the draw)."""
     name = clean_text(request.form.get("name"), 60)
     raw_phone = request.form.get("phone", "")
     phone = clean_phone(raw_phone)
@@ -380,8 +379,7 @@ def edit_person(pid):
     if raw_phone.strip() and not phone:
         return autosave_reply(False, "That phone number doesn't look right. Use digits, adding +1 or similar if needed.")
     d = db()
-    d.execute("UPDATE people SET name=?, phone=?, email=? WHERE id=?",
-              (name, phone, clean_text(request.form.get("email"), 120) or None, pid))
+    d.execute("UPDATE people SET name=?, phone=? WHERE id=?", (name, phone, pid))
     d.commit()
     return autosave_reply(True, f"Saved {name}.", name=name, phone=phone)
 

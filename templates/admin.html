@@ -27,18 +27,14 @@
         <a class="btn small" href="sms:{{ p.phone }}?&amp;body={{ sms_text(p.name, p.token)|urlencode }}">💬 Text link</a>
       {% endif %}
       <button class="btn ghost small" type="button" data-copy="{{ link_for(p.token) }}">Copy link</button>
-      {% if p.email %}
-        <a class="btn ghost small" href="mailto:{{ p.email }}?subject={{ 'Our family Secret Santa'|urlencode }}&amp;body={{ sms_text(p.name, p.token)|urlencode }}">Email</a>
-      {% endif %}
     </div>
     <details class="pedit" id="pedit-{{ p.id }}">
-      <summary>Edit name, number or email <span class="muted">(saves automatically)</span></summary>
+      <summary>Edit name or number <span class="muted">(saves automatically)</span></summary>
       <form method="post" action="{{ url_for('edit_person', pid=p.id) }}" data-autosave>
         <input type="hidden" name="csrf" value="{{ csrf }}">
         <div class="row">
           <div><label>Name</label><input type="text" name="name" value="{{ p.name }}" required maxlength="60"></div>
           <div><label>Mobile number</label><input type="tel" name="phone" value="{{ p.phone or '' }}" maxlength="25" inputmode="tel"></div>
-          <div><label>Email (optional)</label><input type="email" name="email" value="{{ p.email or '' }}" maxlength="120"></div>
         </div>
         <noscript><p><button class="btn small" type="submit">Save</button></p></noscript>
       </form>
@@ -64,8 +60,6 @@
       <div><label>Name</label><input id="new-name" type="text" name="name" required maxlength="60" autocomplete="off"></div>
       <div><label>Mobile number</label><input type="tel" name="phone" maxlength="25" inputmode="tel" placeholder="e.g. 555 123 4567"></div>
     </div>
-    <label>Email (optional)</label>
-    <input type="email" name="email" maxlength="120">
     <p><button class="btn" type="submit">Add person</button></p>
   </form>
   {% endif %}
@@ -238,7 +232,7 @@
 
   document.addEventListener('input', function(e){            // typing: save shortly after you pause
     var f = autosaveForm(e.target);
-    if (f && /^(text|tel|email|url)$/.test(e.target.type)) queue(f, 700);
+    if (f && /^(text|tel|url)$/.test(e.target.type)) queue(f, 700);
   });
   document.addEventListener('change', function(e){           // picking / ticking / leaving a field: save now
     var f = autosaveForm(e.target);
