@@ -1,18 +1,20 @@
 {% extends "base.html" %}
-{% block title %}My wish list · Secret Santa{% endblock %}
+{% block title %}My wish list | Hamilton-Lassally Secret Santa{% endblock %}
 
 {% macro thumb(item) %}
-  {% if item.image %}<img class="thumb" src="{{ item.image }}" alt="" loading="lazy" referrerpolicy="no-referrer">
-  {% else %}<div class="thumb">🎁</div>{% endif %}
+  {% if item.image %}<img class="thumb" src="{{ item.image }}" alt="" loading="lazy" referrerpolicy="no-referrer" data-site="{{ item.url|site }}">
+  {% else %}<div class="thumb ph{{ ' finding' if item.url and not item.image_checked }}">{{ item.url|site }}</div>{% endif %}
 {% endmacro %}
 
 {% block content %}
-<p><a href="{{ url_for('index') }}">← Back to everyone's lists</a></p>
+<p><a href="{{ url_for('index') }}">Back to everyone's lists</a></p>
 <h1>My wish list</h1>
+<p class="lede">Paste a link and the picture, name and price are found for you. Changes save as you type.</p>
 
-{# Every gift is shown open and editable. Changes save by themselves. #}
 {% for it in mine %}
-<div class="item editable" id="item{{ it.id }}">
+<div class="item editable" id="item{{ it.id }}" data-item="{{ it.id }}"
+     data-find="{{ url_for('find_item_image', item_id=it.id) }}"
+     data-needs="{{ 1 if it.url and not it.image and (not it.image_checked or now - it.image_checked > 3600) else 0 }}">
   {{ thumb(it) }}
   <div class="body">
     <form method="post" action="{{ url_for('edit_item', item_id=it.id) }}" data-autosave>
@@ -20,14 +22,11 @@
       <label>Gift</label>
       <input type="text" name="title" value="{{ it.title }}" maxlength="200" required>
       <div class="row">
-        <div style="flex:0 1 130px"><label>Price</label><input type="text" name="price" value="{{ it.price or '' }}" maxlength="30" placeholder="$25.00"></div>
-        <div><label>Link</label><input type="url" name="url" value="{{ it.url or '' }}" placeholder="https://…"></div>
+        <div style="flex:0 1 130px"><label>Price</label><input type="text" name="price" class="f-price" value="{{ it.price or '' }}" maxlength="30" placeholder="$25.00"></div>
+        <div><label>Link</label><input type="url" name="url" data-onchange value="{{ it.url or '' }}" placeholder="https://"></div>
       </div>
       <label>Note (size, color, anything helpful)</label>
       <input type="text" name="note" value="{{ it.note or '' }}" maxlength="500">
-      <details style="margin-top:8px"><summary>Picture link</summary>
-        <input type="url" name="image" value="{{ it.image or '' }}" placeholder="Paste a picture link if the right one didn't load">
-      </details>
       <noscript><p><button class="btn small" type="submit">Save</button></p></noscript>
     </form>
     <div class="actions">
@@ -42,23 +41,21 @@
 <div class="card"><p class="muted" style="margin:0">Nothing yet. Add your first idea below.</p></div>
 {% endfor %}
 
-<div class="card" id="add">
+<div class="card" id="add" style="margin-top:1.6rem">
   <h2>Add a gift idea</h2>
   <form method="post" action="{{ url_for('add_item') }}" id="add-form" data-refocus="#add-url">
     <input type="hidden" name="csrf" value="{{ csrf }}">
-    <label>Link to the gift</label>
+    <input type="hidden" name="image" class="f-image">
+    <label for="add-url">Link to the gift</label>
     <input id="add-url" type="url" name="url" class="f-url" placeholder="Paste a product link and the rest fills in">
-    <div class="muted f-status"></div>
+    <div class="muted f-status" aria-live="polite"></div>
     <div class="row">
       <div><label>Name</label><input type="text" name="title" class="f-title" maxlength="200" placeholder="Fills in from the link"></div>
       <div style="flex:0 1 140px"><label>Price</label><input type="text" name="price" class="f-price" maxlength="30" placeholder="$25.00"></div>
     </div>
     <label>Note (size, color, anything helpful)</label>
     <input type="text" name="note" maxlength="500">
-    <details style="margin-top:8px"><summary>Picture link</summary>
-      <input type="url" name="image" class="f-image" placeholder="Fills in from the link; paste your own if it's missing">
-    </details>
-    <p><button class="btn" type="submit">Add to my list</button></p>
+    <p style="margin-top:1rem"><button class="btn" type="submit">Add to my list</button></p>
   </form>
 </div>
 {% endblock %}
@@ -68,6 +65,7 @@
 <script>
 (function () {
   var PREVIEW = {{ url_for('preview')|tojson }};
+  var CSRF = (document.querySelector('meta[name=csrf]') || {}).content || '';
 
   // Add form: pasting a link fills in the name, price and picture (only into empty boxes).
   function lookup(form) {
@@ -75,16 +73,16 @@
         price = form.querySelector('.f-price'), image = form.querySelector('.f-image'),
         status = form.querySelector('.f-status'), v = url.value.trim();
     if (!v || v === form.dataset.last) return;
-    form.dataset.last = v;
-    status.textContent = 'Looking up the product…';
+    form.dataset.last = v; image.value = '';
+    status.textContent = 'Looking up the product...';
     fetch(PREVIEW + '?url=' + encodeURIComponent(v), { credentials: 'same-origin' })
       .then(function (r) { return r.json(); })
       .then(function (d) {
         if (d.title && !title.value) title.value = d.title;
         if (d.price && !price.value) price.value = d.price;
-        if (d.image && !image.value) image.value = d.image;
+        if (d.image) image.value = d.image;
         var got = [d.title && 'name', d.price && 'price', d.image && 'picture'].filter(Boolean);
-        status.textContent = got.length ? 'Found: ' + got.join(', ') + '. Check it looks right.'
+        status.textContent = got.length ? 'Found: ' + got.join(', ') + '.'
                                         : (d.error || 'Nothing found. Fill in the details by hand.');
       })
       .catch(function () { status.textContent = 'Lookup failed. Fill in the details by hand.'; });
@@ -96,15 +94,42 @@
     if (e.target.matches && e.target.matches('#add-form .f-url')) setTimeout(function () { lookup(e.target.form); }, 60);
   });
 
-  // When a picture link changes on an existing gift, update its thumbnail straight away.
+  // Finding pictures for saved gifts, one at a time, in the background.
+  var queue = [], busy = false;
+  function show(card, d) {
+    var old = card.querySelector('.thumb'), fresh;
+    if (d.image) { fresh = document.createElement('img'); fresh.src = d.image; fresh.alt = ''; fresh.referrerPolicy = 'no-referrer'; fresh.dataset.site = d.site || ''; fresh.className = 'thumb'; }
+    else { fresh = document.createElement('div'); fresh.className = 'thumb ph'; fresh.textContent = d.site || ''; }
+    old.replaceWith(fresh);
+    var price = card.querySelector('.f-price');
+    if (d.price && price && !price.value) price.value = d.price;
+  }
+  function pump() {
+    if (busy || !queue.length) return;
+    var card = queue.shift(); busy = true;
+    var ph = card.querySelector('.thumb.ph'); if (ph) ph.classList.add('finding');
+    fetch(card.dataset.find, { method: 'POST', credentials: 'same-origin',
+                               headers: { 'X-CSRF': CSRF, 'X-Requested-With': 'fetch' } })
+      .then(function (r) { return r.json(); })
+      .then(function (d) { if (d.ok !== false) show(card, d); else if (ph) ph.classList.remove('finding'); })
+      .catch(function () { if (ph) ph.classList.remove('finding'); })
+      .then(function () { busy = false; pump(); });
+  }
+  function sweep() {
+    document.querySelectorAll('.item[data-needs="1"]').forEach(function (c) {
+      c.dataset.needs = '0'; queue.push(c);
+    });
+    pump();
+  }
+  sweep();
+  document.addEventListener('swapped', sweep);
+
+  // After a link is edited, the server forgets the old picture; go find the new one.
   document.addEventListener('autosaved', function (e) {
     var f = e.detail.form, d = e.detail.data, card = f.closest('.item');
     if (!card || !d.ok) return;
-    var old = card.querySelector('.thumb'), fresh;
-    if (d.image) { fresh = document.createElement('img'); fresh.src = d.image; fresh.alt = ''; fresh.referrerPolicy = 'no-referrer'; }
-    else { fresh = document.createElement('div'); fresh.textContent = '🎁'; }
-    fresh.className = 'thumb';
-    old.replaceWith(fresh);
+    if (d.needs_image) { queue.push(card); pump(); }
+    else if (!f.querySelector('[name=url]').value) show(card, { image: null, site: '' });
   });
 })();
 </script>

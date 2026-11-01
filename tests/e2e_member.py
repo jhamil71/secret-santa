@@ -32,21 +32,21 @@ try:
         ann.fill("input[type=tel]", "000 000 0000"); ann.click("text=Continue")
         check("couldn't find that number" in ann.inner_text(".flash"), "unknown number shows a friendly error")
         ann.fill("input[type=tel]", "(555) 100-0001"); ann.click("text=Continue")
-        ann.wait_for_selector("h1:has-text('Welcome, Ann')")
-        check("Welcome, Ann" in ann.inner_text("h1"), "welcome message uses her name")
-        names = ann.locator(".nrow strong").all_inner_texts()
-        check(names == ["Ann", "Bob", "Cara"], f"landing lists everyone ({names})")
-        check(ann.locator(".nrow.me a:has-text('Edit my list')").count() == 1, "her own row has 'Edit my list'")
-        link = ann.locator(".nrow.me input[readonly]").input_value()
+        ann.wait_for_selector("h2:has-text('Welcome, Ann')")
+        check("Welcome, Ann" in ann.inner_text("h2"), "welcome message uses her name")
+        names = ann.locator(".people .pname").all_inner_texts()
+        check([n.replace(" (you)", "") for n in names] == ["Ann", "Bob", "Cara"], f"landing lists everyone ({names})")
+        check(ann.locator(".people .you a:has-text('Edit my list')").count() == 1, "her own row has 'Edit my list'")
+        link = ann.locator(".people .you input[readonly]").input_value()
         ann_slug = link.rsplit("/", 1)[1]
-        check("/list/" in link and ann.locator(".nrow.me button:has-text('Copy link')").count() == 1,
+        check("/list/" in link and ann.locator(".people .you button:has-text('Copy link')").count() == 1,
               "her row shows a copyable link to her public list")
-        ann.click(".nrow.me button:has-text('Copy link')")
-        check(ann.locator(".nrow.me button.btn.small").first.inner_text() == "Copied!", "Copy link button confirms 'Copied!'")
-        check(ann.locator(".nrow.me a:has-text('Text it')").get_attribute("href").startswith("sms:"), "Text it opens messages")
+        ann.click(".people .you button:has-text('Copy link')")
+        check(ann.locator(".people .you button.btn.small").first.inner_text() == "Copied!", "Copy link button confirms 'Copied!'")
+        check(ann.locator(".people .you a:has-text('Text link')").get_attribute("href").startswith("sms:"), "Text link opens messages")
 
         # her editable list: simple page, add a gift (no reload), then edit it by just typing
-        ann.click(".nrow.me a:has-text('Edit my list')"); ann.wait_for_selector("h1:has-text('My wish list')")
+        ann.click(".people .you a:has-text('Edit my list')"); ann.wait_for_selector("h1:has-text('My wish list')")
         check("Your gifts" not in ann.inner_text("main") and ann.locator("input[readonly]").count() == 0,
               "My list page has no 'Your gifts' header or share box")
         ann.evaluate("window.__noReload = true")
@@ -92,8 +92,8 @@ try:
         ctx2 = b.new_context(viewport={"width": 390, "height": 800})
         bob = ctx2.new_page(); bob.on("pageerror", lambda e: errors.append(str(e)))
         bob.goto(B + "/"); bob.fill("input[type=tel]", "5551000002"); bob.click("text=Continue")
-        bob.wait_for_selector("h1:has-text('Welcome, Bob')")
-        bob.click(".nrow:has(strong:text-is('Ann'))")
+        bob.wait_for_selector("h2:has-text('Welcome, Bob')")
+        bob.click("a.person:has(.pname:text-is('Ann'))")
         bob.wait_for_selector("h1:has-text(\"Ann's wish list\")")
         check(bob.locator("a:has-text('Back to everyone')").count() == 1, "Bob has a way back to everyone's lists")
         bob.click("button:text-is('I bought this')")

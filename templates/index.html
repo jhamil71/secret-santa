@@ -1,31 +1,37 @@
 {% extends "base.html" %}
-{% block title %}Family Secret Santa{% endblock %}
+{% block title %}Hamilton-Lassally Secret Santa{% endblock %}
+{% block header %}
+<header class="masthead">
+  <div class="masthead-inner">
+    <h1 class="mast-title" style="margin-top:2.2rem"><span class="nowrap">Hamilton-</span><span class="nowrap">Lassally</span><br>Secret Santa</h1>
+  </div>
+</header>
+{% endblock %}
 {% block content %}
-<div class="card" style="max-width:460px;margin:24px auto">
-  <h1>Welcome 🎄</h1>
-  {% if choices %}
-    <p>That number is shared by more than one person. Who are you?</p>
-    <div class="actions" style="flex-direction:column;align-items:stretch">
-      {% for c in choices %}
-      <form method="post" action="{{ url_for('login') }}">
-        <input type="hidden" name="csrf" value="{{ csrf }}">
-        <input type="hidden" name="phone" value="{{ phone }}">
-        <input type="hidden" name="person_id" value="{{ c.id }}">
-        <button class="btn" style="width:100%" type="submit">{{ c.name }}</button>
-      </form>
-      {% endfor %}
-    </div>
-  {% else %}
-    <p>Enter your mobile number to see everyone's wish lists and, once names are drawn, who you're buying for.</p>
+{% if choices %}
+  <h2>Who are you?</h2>
+  <p class="lede">That number is shared by more than one person.</p>
+  <div class="actions" style="flex-direction:column;align-items:stretch;max-width:22rem">
+    {% for c in choices %}
     <form method="post" action="{{ url_for('login') }}">
       <input type="hidden" name="csrf" value="{{ csrf }}">
-      <label for="phone">Your mobile number</label>
-      <input id="phone" type="tel" name="phone" value="{{ phone or '' }}" inputmode="tel" autocomplete="tel"
-             placeholder="e.g. 555 123 4567" maxlength="25" required autofocus>
-      <p><button class="btn" style="width:100%" type="submit">Continue</button></p>
+      <input type="hidden" name="phone" value="{{ phone }}">
+      <input type="hidden" name="person_id" value="{{ c.id }}">
+      <button class="btn" style="width:100%" type="submit">{{ c.name }}</button>
     </form>
-    <p class="muted">Use the number the organizer has for you. If it isn't recognized, ask them to add it.</p>
-  {% endif %}
-</div>
-<p class="muted" style="text-align:center"><a href="{{ url_for('admin') }}">Organizer</a></p>
+    {% endfor %}
+  </div>
+{% else %}
+  <h2>Sign in with your phone number</h2>
+  <p class="lede">Use the number the organizer has for you.</p>
+  <form method="post" action="{{ url_for('login') }}" style="max-width:22rem">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <label for="phone">Mobile number</label>
+    <input id="phone" type="tel" name="phone" value="{{ phone or '' }}" inputmode="tel" autocomplete="tel"
+           placeholder="555 123 4567" maxlength="25" required autofocus>
+    <p style="margin-top:1rem"><button class="btn" style="width:100%" type="submit">Continue</button></p>
+  </form>
+  <p class="muted">If your number isn't recognized, ask the organizer to add it.</p>
+{% endif %}
+<p class="foot"><a href="{{ url_for('admin') }}">Organizer</a></p>
 {% endblock %}

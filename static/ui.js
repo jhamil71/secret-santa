@@ -58,6 +58,7 @@
 
   document.addEventListener('input', function (e) {          // typing: save shortly after you pause
     var f = autosaveForm(e.target);
+    if (e.target.hasAttribute('data-onchange')) return;      // e.g. a link: save when you leave the box, not mid-typing
     if (f && /^(text|tel|url)$/.test(e.target.type)) queue(f, 700);
   });
   document.addEventListener('change', function (e) {         // picking / ticking / leaving a field: save now

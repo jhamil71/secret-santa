@@ -422,7 +422,7 @@ def test_phone_sign_in(client):
 
     c = app_module.app.test_client()
     page = c.get("/").data.decode()
-    assert "Your mobile number" in page and "Welcome," not in page          # signed out: just the sign-in box
+    assert "Mobile number" in page and "Welcome," not in page          # signed out: just the sign-in box
 
     def login(phone, **extra):
         return c.post("/login", data={"csrf": _csrf(c), "phone": phone, **extra}, follow_redirects=True)
@@ -522,12 +522,16 @@ def test_my_list_is_fully_editable_with_autosave(client):
     def jpost(c, path, **data):
         return c.post(path, data={"csrf": _csrf(c), **data}, headers=JSON)
 
-    # old entries autosave (JSON), including the picture, and the change really sticks
-    r = jpost(ann, f"/mine/items/{ids[0]}/edit", title="Red Scarf", price="$25", url="https://shop.example/scarf",
-              image="https://img.example/scarf.png", note="wool")
-    assert r.status_code == 200 and r.get_json() == {"ok": True, "message": "Saved.", "image": "https://img.example/scarf.png"}
+    # old entries autosave (JSON); pictures are never typed. Keeping the same link keeps its picture,
+    # changing the link drops the old picture and asks the page to go find the new one
+    db = rows(); db.execute("UPDATE items SET image='/img/old.png', image_checked=1 WHERE id=?", (ids[0],)); db.commit(); db.close()
+    r = jpost(ann, f"/mine/items/{ids[0]}/edit", title="Red Scarf", price="$25", url="https://shop.example/scarf", note="wool")
+    assert r.status_code == 200 and r.get_json() == {"ok": True, "message": "Saved.", "image": "/img/old.png", "needs_image": False}
     row = rows().execute("SELECT title, price, note, image FROM items WHERE id=?", (ids[0],)).fetchone()
-    assert tuple(row) == ("Red Scarf", "$25", "wool", "https://img.example/scarf.png")
+    assert tuple(row) == ("Red Scarf", "$25", "wool", "/img/old.png")
+    r = jpost(ann, f"/mine/items/{ids[0]}/edit", title="Red Scarf", price="$25", url="https://shop.example/scarf2", note="wool")
+    assert r.get_json()["image"] is None and r.get_json()["needs_image"] is True
+    assert "Picture link" not in ann.get("/mine").data.decode()
     assert "Red Scarf" in ann.get("/mine").data.decode()
 
     # clearing the name or entering a bad link is refused with a clear message and changes nothing

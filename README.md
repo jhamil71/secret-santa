@@ -3,7 +3,7 @@
 A small self-hosted gift exchange (think Elfster, but yours).
 
 - **Rules for the draw**: couples can't draw each other, no one draws the same person as last year, no one draws themselves, and (optionally) no direct swaps.
-- **Wish lists**: paste a product link and the name, picture and price are filled in automatically (you can edit them, or add your own picture link when a store blocks previews). Everyone's list is also browsable by the whole family from their own page.
+- **Wish lists**: paste a product link and the name, picture and price are found automatically, the way Google Sheets previews a link. Nobody uploads or pastes a picture. Pictures are copied to `data/img` so they keep working, and gifts saved without one are retried in the background. Everyone's list is also browsable by the whole family from their own page.
 - **Organizer controls**: add people, set rules, draw names, reset or start next year. The page saves as you go (no Save buttons; the My wish list page works the same way, with every gift open for editing), shows a small "Saved ✓" confirmation, and updates in place without reloading. The organizer can't see who has whom, so you stay surprised too.
 - **Shareable wish list page**: every person also gets a separate public link (`/list/...`) for their wish list alone, shown on the landing page with Copy link and Text it buttons. It has no Secret Santa wording and shows no one else's information, so they can send it to anyone (grandparents, friends, anyone outside the exchange). It's separate from the private link, so sharing it never reveals who anyone drew. It's hidden from search engines, but anyone with the link can view it.
 - **Checking things off**: anyone with the link, family or not, can tap **I bought this** on a gift. Everyone else then sees an anonymous "Already bought", and only the person who checked it can undo it. The list's owner never sees the checkmarks. (The site recognises the owner by their browser, after they've opened their private link. If they open their own shared link on a device that has never opened their private link, they'd see the checkmarks, so keep that one for others.)
@@ -59,7 +59,8 @@ If you don't set `ADMIN_PASSWORD`, one is generated on first start, printed in t
 
 - **Back up the `data/` folder.** It holds the database.
 - **Put it behind HTTPS** (a reverse proxy like Caddy, or a tunnel) if it's reachable from the internet.
-- **Link previews** read each store's page. Some (Amazon in particular) block this; in that case the form tells you and you fill in name, price and picture yourself.
+- **Link previews** read each store's page. If a store refuses automated visits the gift shows a tile with the store's name instead of a picture, and the price may need typing in. Amazon links get their picture from the product code.
+- **Fonts** (Besley and Public Sans) are bundled in `static/fonts` under the SIL Open Font License, so the site makes no outside requests.
 - The organizer runs the server, so a determined organizer could still read the database. The app simply keeps the matches off the dashboard.
 
 ## Tests

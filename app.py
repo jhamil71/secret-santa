@@ -9,15 +9,16 @@ from functools import wraps
 from urllib.parse import urlparse
 
 from flask import (Flask, abort, flash, g, jsonify, redirect, render_template,
-                   request, session, url_for)
+                   request, send_from_directory, session, url_for)
 
 from draw import find_assignment
-from preview import fetch_preview
+from preview import cache_image, fetch_preview, site_name
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.environ.get("DATA_DIR", os.path.join(APP_DIR, "data"))
 os.makedirs(DATA_DIR, exist_ok=True)
 DB_PATH = os.path.join(DATA_DIR, "santa.db")
+IMG_DIR = os.path.join(DATA_DIR, "img")
 
 
 def _persisted_secret(filename, nbytes):
@@ -74,7 +75,7 @@ CREATE TABLE IF NOT EXISTS items(
     id INTEGER PRIMARY KEY,
     person_id INTEGER NOT NULL REFERENCES people(id) ON DELETE CASCADE,
     title TEXT NOT NULL, url TEXT, price TEXT, image TEXT, note TEXT,
-    bought_by TEXT,
+    bought_by TEXT, image_checked INTEGER,
     created TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
 CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT);
 """
@@ -97,6 +98,8 @@ def init_db():
             c.execute("UPDATE people SET list_slug=? WHERE id=?", (secrets.token_urlsafe(6), pid))
         c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_people_list_slug ON people(list_slug)")
         icols = {r[1] for r in c.execute("PRAGMA table_info(items)")}
+        if "image_checked" not in icols:
+            c.execute("ALTER TABLE items ADD COLUMN image_checked INTEGER")
         if "bought_by" not in icols:
             # bought_by is a text key: "p<id>" for a family member, "v<random>" for a visitor's browser.
             c.execute("ALTER TABLE items ADD COLUMN bought_by TEXT")
@@ -258,6 +261,31 @@ def inject_globals():
     return {"csrf": session["csrf"], "viewer": current_person()}
 
 
+app.jinja_env.filters["site"] = site_name
+
+
+def keep_picture(image_url, page_url=None):
+    """Save a copy of a gift picture on our own server, so it never depends on the store again.
+    If the copy can't be made, fall back to the store's own picture address."""
+    if not image_url or image_url.startswith("/img/"):
+        return image_url or None
+    return cache_image(image_url, IMG_DIR, referer=page_url) or image_url
+
+
+@app.template_filter("site")
+def _site_filter(url):
+    return site_name(url) if url else ""
+
+
+@app.get("/img/<name>")
+def cached_image(name):
+    if not re.fullmatch(r"[0-9a-f]{40}\.(jpg|png|gif|webp)", name):
+        abort(404)
+    resp = send_from_directory(IMG_DIR, name, max_age=31536000)
+    resp.headers["X-Content-Type-Options"] = "nosniff"
+    return resp
+
+
 def wants_json():
     return request.headers.get("X-Requested-With") == "fetch" and "application/json" in request.headers.get("Accept", "")
 
@@ -337,7 +365,6 @@ def login():
         matches = [p for p in matches if p["id"] == chosen]
     if len(matches) == 1:
         sign_in(matches[0])
-        flash(f"Welcome, {matches[0]['name']}! 🎄", "ok")
         return redirect(url_for("index"))
     if len(matches) > 1:  # one phone shared by several family members: ask who is signing in
         return render_template("index.html", choices=matches, phone=raw)
@@ -627,7 +654,7 @@ def person_page(token):
 @member_required
 def mine(me):
     items = db().execute("SELECT * FROM items WHERE person_id=? ORDER BY id", (me["id"],)).fetchall()
-    return render_template("mine.html", me=me, mine=items)
+    return render_template("mine.html", me=me, mine=items, now=int(time.time()))
 
 
 @app.route("/list/<slug>")
@@ -710,20 +737,21 @@ def add_item(me):
     if err:
         flash(err, "error")
         return redirect(url_for("mine"))
-    if f["url"] and not f["title"]:  # no JavaScript / preview skipped: try server-side
+    if f["url"] and not f["title"]:  # no JavaScript / lookup skipped: do it here
         info = fetch_preview(f["url"])
         f["title"] = (info.get("title") or "")[:200]
         f["price"] = f["price"] or info.get("price")
         f["image"] = f["image"] or info.get("image")
     if not f["title"]:
         if f["url"]:
-            f["title"] = urlparse(f["url"]).netloc
+            f["title"] = site_name(f["url"])
         else:
             flash("Give the gift a name or paste a link.", "error")
             return redirect(url_for("mine"))
     d = db()
     d.execute("INSERT INTO items(person_id, title, url, price, image, note) VALUES (?,?,?,?,?,?)",
-              (me["id"], f["title"], f["url"], f["price"], f["image"], f["note"]))
+              (me["id"], f["title"], f["url"], f["price"],
+               keep_picture(f["image"], f["url"]), f["note"]))
     d.commit()
     flash("Added to your wish list.", "ok")
     return redirect(url_for("mine") + "#add")
@@ -739,18 +767,39 @@ def _own_item_or_404(me, item_id):
 @app.post("/mine/items/<int:item_id>/edit")
 @member_required
 def edit_item(me, item_id):
-    """Edit an existing gift. Autosaves as you type (JSON), or works as a plain form post."""
-    _own_item_or_404(me, item_id)
+    """Edit an existing gift. Autosaves as you type (JSON), or works as a plain form post.
+    Nobody types picture links: the picture belongs to the product link and is found automatically."""
+    item = _own_item_or_404(me, item_id)
     f, err = _item_fields()
     if err:
         return autosave_reply(False, err, to="mine")
     if not f["title"]:
         return autosave_reply(False, "A gift needs a name.", to="mine")
+    link_changed = (f["url"] or None) != (item["url"] or None)
+    image, checked = (None, None) if link_changed else (item["image"], item["image_checked"])
     d = db()
-    d.execute("UPDATE items SET title=?, url=?, price=?, image=?, note=? WHERE id=?",
-              (f["title"], f["url"], f["price"], f["image"], f["note"], item_id))
+    d.execute("UPDATE items SET title=?, url=?, price=?, note=?, image=?, image_checked=? WHERE id=?",
+              (f["title"], f["url"], f["price"], f["note"], image, checked, item_id))
     d.commit()
-    return autosave_reply(True, "Saved.", to="mine", image=f["image"])
+    return autosave_reply(True, "Saved.", to="mine", image=image,
+                          needs_image=bool(f["url"] and not image))
+
+
+@app.post("/mine/items/<int:item_id>/image")
+@member_required
+def find_item_image(me, item_id):
+    """Look up the picture (and price, if missing) for a gift's link. Called in the background."""
+    item = _own_item_or_404(me, item_id)
+    d = db()
+    if not item["url"]:
+        return jsonify(ok=False, image=None)
+    info = fetch_preview(item["url"])
+    image = keep_picture(info.get("image"), item["url"]) if info.get("image") else None
+    price = item["price"] or info.get("price")
+    d.execute("UPDATE items SET image=COALESCE(?, image), price=?, image_checked=? WHERE id=?",
+              (image, price, int(time.time()), item_id))
+    d.commit()
+    return jsonify(ok=bool(image), image=image or item["image"], price=price, site=site_name(item["url"]))
 
 
 @app.post("/mine/items/<int:item_id>/delete")

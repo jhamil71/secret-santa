@@ -1,23 +1,38 @@
-"""Link previews: fetch a product page and pull out title, image and price."""
+"""Link previews, the way Google Sheets does it.
+
+Given a product link, find its title, picture and price from the page's own link-preview tags
+(Open Graph / Twitter cards / JSON-LD), then keep a copy of the picture on our own server so it
+keeps working even if the store changes or blocks hotlinking.
+
+Stores often refuse plain scripts, so each page is tried as an ordinary browser first and then as
+the link-preview crawlers that social sites use, which stores allow so their links unfurl.
+"""
+import hashlib
 import ipaddress
 import json
+import os
 import re
 import socket
-from urllib.parse import urljoin, urlparse
+import time
+from urllib.parse import unquote, urljoin, urlparse
 
 import requests
 from bs4 import BeautifulSoup
 
-HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-        "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
-    ),
-    "Accept": "text/html,application/xhtml+xml",
-    "Accept-Language": "en-US,en;q=0.9",
-}
-MAX_BYTES = 1_500_000
+BROWSER_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+)
+AGENTS = [
+    BROWSER_UA,
+    "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)",
+    "Twitterbot/1.0",
+]
+MAX_PAGE_BYTES = 2_000_000
+MAX_IMAGE_BYTES = 4_000_000
+MIN_IMAGE_BYTES = 1_200          # smaller than this is a tracking pixel or a "not found" placeholder
 MAX_REDIRECTS = 4
+TOTAL_BUDGET_SECONDS = 15        # all attempts for one link together
 CURRENCY_SYMBOLS = {"USD": "$", "EUR": "€", "GBP": "£", "CAD": "CA$", "AUD": "A$"}
 
 
@@ -41,6 +56,13 @@ def check_public_url(url):
             raise UnsafeURL("That address isn't a public website.")
 
 
+def site_name(url):
+    """'https://www.homedepot.com/p/...' -> 'homedepot.com'"""
+    host = (urlparse(url or "").hostname or "").lower()
+    return host[4:] if host.startswith("www.") else host
+
+
+# ---------------------------------------------------------------- parsing
 def _nodes(data):
     """Yield every dict inside a JSON-LD blob (handles lists and @graph)."""
     if isinstance(data, list):
@@ -102,6 +124,24 @@ def format_price(raw, currency=None):
     return f"{text} {cur}".strip()
 
 
+def _norm(s):
+    return re.sub(r"[^a-z0-9]", "", (s or "").lower())
+
+
+def clean_title(title, og_site_name, url):
+    """'Table Saw DWE7491RS - The Home Depot' -> 'Table Saw DWE7491RS' (drops a trailing store name)."""
+    if not title:
+        return title
+    parts = re.split(r"\s+[\-|–—:]\s+|\s*\|\s*", title)
+    if len(parts) > 1:
+        tail = _norm(parts[-1])
+        host_label = _norm(site_name(url).split(".")[0])
+        names = {_norm(og_site_name), host_label}
+        if tail and any(n and (tail == n or tail in n or n in tail) for n in names):
+            title = title[: title.rfind(parts[-1])].rstrip(" -|–—:").strip() or title
+    return title
+
+
 def parse_metadata(html, base_url):
     soup = BeautifulSoup(html, "html.parser")
 
@@ -116,9 +156,14 @@ def parse_metadata(html, base_url):
     title = meta("og:title", "twitter:title")
     if not title and soup.title and soup.title.string:
         title = soup.title.string.strip()
-    image = meta("og:image", "og:image:url", "twitter:image", "twitter:image:src")
+    image = meta("og:image:secure_url", "og:image", "og:image:url", "twitter:image", "twitter:image:src")
     price = meta("product:price:amount", "og:price:amount", "price")
     currency = meta("product:price:currency", "og:price:currency", "priceCurrency")
+
+    if not image:
+        link = soup.find("link", rel=lambda r: r and "image_src" in (r if isinstance(r, list) else [r]))
+        if link and link.get("href"):
+            image = link["href"].strip()
 
     for script in soup.find_all("script", type="application/ld+json"):
         try:
@@ -134,10 +179,23 @@ def parse_metadata(html, base_url):
                 price, currency = _offer_price(node.get("offers"))
             break
 
+    if not image:  # Amazon and a few others: the main product picture, not a social tag
+        main = soup.find("img", id="landingImage") or soup.find("img", id="imgBlkFront")
+        if main:
+            image = main.get("data-old-hires") or main.get("src")
+            if not image and main.get("data-a-dynamic-image"):
+                try:
+                    image = next(iter(json.loads(main["data-a-dynamic-image"])))
+                except (ValueError, StopIteration):
+                    pass
+    if not image:
+        image = meta("thumbnail", "image")
+
     if image:
-        image = urljoin(base_url, image)
+        image = urljoin(base_url, image.strip())
         if urlparse(image).scheme not in ("http", "https"):
             image = None
+    title = clean_title(title, meta("og:site_name"), base_url)
     return {
         "title": (title or "")[:200] or None,
         "image": image,
@@ -145,37 +203,121 @@ def parse_metadata(html, base_url):
     }
 
 
-def fetch_preview(url):
-    """Return {ok, title, image, price, error}. Never raises."""
-    out = {"ok": False, "title": None, "image": None, "price": None, "error": None}
-    try:
-        current = url
-        for _ in range(MAX_REDIRECTS + 1):
-            check_public_url(current)
-            r = requests.get(current, headers=HEADERS, timeout=(4, 7),
-                             allow_redirects=False, stream=True)
-            if r.is_redirect and r.headers.get("Location"):
-                current = urljoin(current, r.headers["Location"])
+# ---------------------------------------------------------------- fetching
+def _open(url, ua, deadline, referer=None, accept="text/html,application/xhtml+xml,*/*;q=0.8"):
+    """GET following redirects by hand so every hop is checked. Returns an open streaming response."""
+    current = url
+    headers = {"User-Agent": ua, "Accept": accept, "Accept-Language": "en-US,en;q=0.9"}
+    if referer:
+        headers["Referer"] = referer
+    for _ in range(MAX_REDIRECTS + 1):
+        check_public_url(current)
+        left = max(deadline - time.time(), 1.0)
+        r = requests.get(current, headers=headers, timeout=(min(4, left), min(7, left)),
+                         allow_redirects=False, stream=True)
+        if r.is_redirect and r.headers.get("Location"):
+            current = urljoin(current, r.headers["Location"])
+            r.close()
+            continue
+        r.final_url = current
+        return r
+    raise requests.TooManyRedirects("Too many redirects.")
+
+
+def _sniff_image(data):
+    """File extension if the bytes really are a jpeg/png/gif/webp picture, else None."""
+    if data[:3] == b"\xff\xd8\xff":
+        return "jpg"
+    if data[:8] == b"\x89PNG\r\n\x1a\n":
+        return "png"
+    if data[:6] in (b"GIF87a", b"GIF89a"):
+        return "gif"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "webp"
+    return None
+
+
+def cache_image(image_url, dest_dir, referer=None):
+    """Download a picture, check it really is one, and save it under its content hash.
+
+    Returns '/img/<name>' (served by the app) or None if it can't be fetched or isn't an image.
+    """
+    deadline = time.time() + 12
+    for ua in (BROWSER_UA, AGENTS[1]):
+        try:
+            r = _open(image_url, ua, deadline, referer=referer, accept="image/*,*/*;q=0.5")
+            if r.status_code >= 400:
                 r.close()
                 continue
-            break
-        else:
-            out["error"] = "Too many redirects."
-            return out
-        if r.status_code >= 400:
-            out["error"] = f"The site refused the request ({r.status_code}). Add details by hand."
-            return out
-        body = r.raw.read(MAX_BYTES, decode_content=True)
+            data = r.raw.read(MAX_IMAGE_BYTES + 1, decode_content=True)
+            r.close()
+        except (UnsafeURL, requests.RequestException):
+            continue
+        ext = _sniff_image(data)
+        if ext and MIN_IMAGE_BYTES <= len(data) <= MAX_IMAGE_BYTES:
+            os.makedirs(dest_dir, exist_ok=True)
+            name = f"{hashlib.sha1(data).hexdigest()}.{ext}"
+            path = os.path.join(dest_dir, name)
+            if not os.path.exists(path):
+                tmp = path + ".part"
+                with open(tmp, "wb") as f:
+                    f.write(data)
+                os.replace(tmp, path)
+            return f"/img/{name}"
+    return None
+
+
+def amazon_picture(url):
+    """Amazon refuses scripts, but its product pictures live at a predictable address per product code."""
+    m = re.search(r"/(?:dp|gp/product|gp/aw/d|exec/obidos/ASIN)/([A-Z0-9]{10})(?:[/?]|$)", urlparse(url).path + "/")
+    if m and re.search(r"(^|\.)amazon\.[a-z.]+$", site_name(url)):
+        return f"https://m.media-amazon.com/images/P/{m.group(1)}.01._SCLZZZZZZZ_.jpg"
+    return None
+
+
+def _page_meta(url, ua, deadline):
+    """One attempt at one page. Returns (metadata dict, problem message or None)."""
+    r = _open(url, ua, deadline)
+    ctype = (r.headers.get("Content-Type") or "").lower()
+    if r.status_code >= 400:
         r.close()
-        meta = parse_metadata(body, current)
-    except UnsafeURL as e:
-        out["error"] = str(e)
-        return out
-    except requests.RequestException:
-        out["error"] = "Couldn't reach that page. Add details by hand."
-        return out
-    out.update(meta)
-    out["ok"] = bool(meta["title"] or meta["image"] or meta["price"])
+        return {}, f"The site refused the request ({r.status_code})."
+    if ctype.startswith("image/"):                      # the link is itself a picture
+        r.close()
+        return {"image": r.final_url}, None
+    if "html" not in ctype and "xml" not in ctype and ctype:
+        r.close()                                       # a PDF, say: nothing to preview, but not an error
+        name = unquote(urlparse(r.final_url).path.rsplit("/", 1)[-1])
+        return {"title": re.sub(r"[-_]+", " ", os.path.splitext(name)[0]).strip()[:200] or None}, None
+    body = r.raw.read(MAX_PAGE_BYTES, decode_content=True)
+    r.close()
+    return parse_metadata(body, r.final_url), None
+
+
+def fetch_preview(url):
+    """Return {ok, title, image, price, site, error}. Never raises. `image` is the store's own address
+    for the picture; call cache_image() to keep a copy."""
+    out = {"ok": False, "title": None, "image": None, "price": None, "site": site_name(url), "error": None}
+    deadline = time.time() + TOTAL_BUDGET_SECONDS
+    problem = None
+    for ua in AGENTS:
+        if time.time() >= deadline:
+            break
+        try:
+            meta, why = _page_meta(url, ua, deadline)
+        except UnsafeURL as e:
+            out["error"] = str(e)
+            return out
+        except requests.RequestException:
+            problem = problem or "Couldn't reach that page."
+            continue
+        problem = why or problem
+        for k in ("title", "image", "price"):
+            out[k] = out[k] or meta.get(k)
+        if out["image"]:
+            break
+    out["image"] = out["image"] or amazon_picture(url)
+    out["ok"] = bool(out["title"] or out["image"] or out["price"])
     if not out["ok"]:
-        out["error"] = "No product details found. Add them by hand."
+        out["error"] = problem or "No product details found."
     return out
