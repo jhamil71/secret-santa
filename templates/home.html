@@ -26,7 +26,7 @@
 {% endif %}
 
 <section class="section" id="everyone">
-  <h2>The family</h2>
+  {% if target %}<h2>You are <span class="giftee-name">{{ target.name }}</span>’s Secret Santa!</h2>{% else %}<h2>The family</h2>{% endif %}
   <ul class="people">
     {% for p in people %}
       {% if p.id == me.id %}

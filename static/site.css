@@ -215,7 +215,6 @@ a.person:hover::after { color: var(--cranberry); }
 .people > li.other .person { flex: 1; min-width: 0; }
 .people .copy { flex: none; margin-left: .4rem; background: none; border: 0; padding: .5rem .3rem; font: 600 .88rem/1 var(--sans); color: var(--fir); text-decoration: underline; text-underline-offset: .18em; cursor: pointer; }
 .people .copy:hover { color: var(--cranberry); }
-.people > li.other .person::after { display: none; }
 .people > li.other .pcount { margin-left: auto; }
 
 .sharebar { display: flex; align-items: center; gap: .8rem 1rem; flex-wrap: wrap; background: var(--paper); border: 1px solid var(--line); border-left: 5px solid var(--cranberry); padding: .9rem 1rem; margin: 0 0 1.4rem; }
@@ -268,3 +267,17 @@ a.person:hover::after { color: var(--cranberry); }
 .youtag { font: 400 .85rem var(--sans); color: var(--muted); white-space: nowrap; }
 .people > li.you { gap: .45rem; }
 .people > li.you .pcount { font-size: .85rem; }
+
+/* heading names the giftee, marked in the same sage as their row */
+.giftee-name { background: #bfd3bc; padding: 0 .3em; margin: 0 -.05em; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
+
+/* rows you can open: a real button-looking arrow, and the whole row reacts */
+.people > li.other .person::after {
+  display: block; content: "\203A"; flex: 0 0 auto; width: 1.9rem; height: 1.9rem; margin: 0 0 0 .6rem; border: 0; transform: none;
+  border-radius: 50%; background: var(--fir); color: #fff; font: 700 1.5rem/1.75rem var(--sans); text-align: center; align-self: center;
+}
+.people > li.other { cursor: pointer; }
+.people > li.other:hover { background: #d7dfd0; }
+.people > li.other.giftee:hover { background: #adc6a9; }
+.people > li.other:hover .person::after { background: var(--cranberry); }
+.people > li.other .pcount { margin-left: auto; }
