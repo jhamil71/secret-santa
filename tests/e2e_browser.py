@@ -5,7 +5,7 @@ import os, re, subprocess, sys, tempfile, time
 from playwright.sync_api import sync_playwright
 
 data = tempfile.mkdtemp()
-env = dict(os.environ, DATA_DIR=data, ADMIN_PASSWORD="pw", PORT="8765")
+env = dict(os.environ, DATA_DIR=data, ADMIN_PASSWORD="test-password", PORT="8765")
 srv = subprocess.Popen([sys.executable, "app.py"], cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))), env=env,
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 time.sleep(2)
@@ -20,7 +20,7 @@ try:
         errors = []
         pg.on("pageerror", lambda e: errors.append(str(e)))
         pg.goto("http://localhost:8765/admin/login")
-        pg.fill("input[name=password]", "pw"); pg.click("button[type=submit]")
+        pg.fill("input[name=password]", "test-password"); pg.click("button[type=submit]")
         pg.wait_for_selector("text=Organizer dashboard")
 
         # mark the document so a full page reload would be detectable

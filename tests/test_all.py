@@ -1,3 +1,4 @@
+import time
 import re
 import os
 import random
@@ -9,7 +10,7 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 os.environ["DATA_DIR"] = tempfile.mkdtemp()
-os.environ["ADMIN_PASSWORD"] = "test-pw"
+os.environ["ADMIN_PASSWORD"] = "test-password"
 
 import app as app_module  # noqa: E402
 from draw import find_assignment  # noqa: E402
@@ -115,6 +116,7 @@ def client(tmp_path, monkeypatch):
     c.get("/")  # establish session + csrf
     with c.session_transaction() as s:
         s["admin"] = True
+        s["admin_at"] = time.time()
     return c
 
 
@@ -601,3 +603,25 @@ def test_landing_message_is_fixed_text(client):
     assert "your giftee may be sharing this wish list with outside folks too!" in page
     assert "Try to spend no more than $200. Have fun!" in page
     assert "Budget:" not in page
+
+
+def test_organizer_login_hardening(client, monkeypatch):
+    # a placeholder or short ADMIN_PASSWORD stops the site from starting
+    import importlib, subprocess, sys as _sys
+    for bad in ["change-me", "short", "Password"]:
+        r = subprocess.run([_sys.executable, "-c", "import app"], capture_output=True, text=True,
+                           env={**os.environ, "ADMIN_PASSWORD": bad, "DATA_DIR": tempfile.mkdtemp()},
+                           cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        assert r.returncode != 0 and "too weak" in (r.stderr + r.stdout), bad
+    # logging in works; the organizer session expires after 12 hours
+    c = app_module.app.test_client(); c.get("/admin/login")
+    r = c.post("/admin/login", data={"csrf": _csrf(c), "password": "test-password"})
+    assert r.status_code == 302 and c.get("/admin").status_code == 200
+    with c.session_transaction() as s:
+        s["admin_at"] = time.time() - 13 * 3600
+    assert c.get("/admin").status_code == 302 and "/admin/login" in c.get("/admin").headers["Location"]
+    # wrong passwords get locked out after repeated tries
+    bad = app_module.app.test_client(); bad.get("/admin/login")
+    for _ in range(10):
+        bad.post("/admin/login", data={"csrf": _csrf(bad), "password": "nope-nope"})
+    assert bad.post("/admin/login", data={"csrf": _csrf(bad), "password": "test-password"}).status_code == 429

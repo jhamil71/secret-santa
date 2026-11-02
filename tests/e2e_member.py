@@ -5,7 +5,7 @@ import os, subprocess, sys, tempfile, time
 from playwright.sync_api import sync_playwright
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-env = dict(os.environ, DATA_DIR=tempfile.mkdtemp(), ADMIN_PASSWORD="pw", PORT="8767")
+env = dict(os.environ, DATA_DIR=tempfile.mkdtemp(), ADMIN_PASSWORD="test-password", PORT="8767")
 srv = subprocess.Popen([sys.executable, "app.py"], cwd=ROOT, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 time.sleep(2)
 fails = []
@@ -19,7 +19,7 @@ try:
         errors = []
         # organizer sets up three people
         org = b.new_page(); org.on("pageerror", lambda e: errors.append(str(e)))
-        org.goto(B + "/admin/login"); org.fill("input[name=password]", "pw"); org.click("button[type=submit]")
+        org.goto(B + "/admin/login"); org.fill("input[name=password]", "test-password"); org.click("button[type=submit]")
         for n, ph in [("Ann", "555 100 0001"), ("Bob", "555 100 0002"), ("Cara", "555 100 0003")]:
             org.fill("#new-name", n); org.fill("form[action$='/admin/people'] input[name=phone]", ph)
             org.keyboard.press("Enter"); org.wait_for_selector(f".pname strong:text-is('{n}')")

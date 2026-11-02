@@ -5,8 +5,9 @@ services:
     ports:
       - "8000:8000"
     environment:
-      # Your organizer password. Change it!
-      ADMIN_PASSWORD: "change-me"
+      # Your organizer password comes from a file named .env next to this one (never committed):
+      #   ADMIN_PASSWORD=your-own-password-at-least-8-characters
+      ADMIN_PASSWORD: "${ADMIN_PASSWORD:?Create a .env file containing ADMIN_PASSWORD=your-own-password}"
       # Public address people will use. Personal links are built from this.
       # BASE_URL: "https://santa.example.com"
       # Set to 1 once you serve the site over HTTPS.

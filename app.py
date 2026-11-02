@@ -35,6 +35,10 @@ def _persisted_secret(filename, nbytes):
 
 SECRET_KEY, _ = _persisted_secret("secret_key.txt", 32)
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD")
+_PLACEHOLDERS = {"change-me", "changeme", "password", "admin", "secret", "santa", "christmas", "12345678"}
+if ADMIN_PASSWORD and (len(ADMIN_PASSWORD) < 8 or ADMIN_PASSWORD.lower() in _PLACEHOLDERS):
+    raise SystemExit("ADMIN_PASSWORD is too weak or still a placeholder. Use at least 8 characters that "
+                     "aren't a common word, or leave it unset and one will be generated for you.")
 if not ADMIN_PASSWORD:
     ADMIN_PASSWORD, generated = _persisted_secret("admin_password.txt", 9)
     if generated:
@@ -46,7 +50,8 @@ app.config.update(
     SECRET_KEY=SECRET_KEY,
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Lax",
-    SESSION_COOKIE_SECURE=os.environ.get("COOKIE_SECURE") == "1",
+    SESSION_COOKIE_SECURE=(os.environ.get("COOKIE_SECURE") == "1"
+                           or (os.environ.get("BASE_URL") or "").startswith("https://")),
     PERMANENT_SESSION_LIFETIME=60 * 60 * 24 * 30,
 )
 
@@ -297,20 +302,22 @@ def autosave_reply(ok, message, to="admin", **extra):
 def admin_required(fn):
     @wraps(fn)
     def wrapper(*a, **kw):
-        if not session.get("admin"):
+        if not session.get("admin") or time.time() - session.get("admin_at", 0) > ADMIN_SESSION_SECONDS:
+            session.pop("admin", None)
             return redirect(url_for("admin_login"))
         return fn(*a, **kw)
     return wrapper
 
 
 _attempts = {}
+ADMIN_SESSION_SECONDS = 12 * 60 * 60     # the organizer signs in again after 12 hours
 
 
-def too_many_attempts(ip):
+def too_many_attempts(ip, limit=10):
     now = time.time()
     recent = [t for t in _attempts.get(ip, []) if now - t < 300]
     _attempts[ip] = recent
-    return len(recent) >= 10
+    return len(recent) >= limit
 
 
 # ---------- sign in & landing page ----------
@@ -382,15 +389,17 @@ def logout():
 def admin_login():
     if request.method == "POST":
         ip = request.remote_addr or "?"
-        if too_many_attempts(ip):
+        if too_many_attempts(ip) or too_many_attempts("admin:any", 40):   # per address, and across all addresses
             flash("Too many attempts. Wait a few minutes and try again.", "error")
             return render_template("admin_login.html"), 429
         pw = request.form.get("password", "")
         if secrets.compare_digest(pw.encode(), ADMIN_PASSWORD.encode()):
             session["admin"] = True
-            session.permanent = True
+            session["admin_at"] = time.time()
+            session.permanent = False
             return redirect(url_for("admin"))
         _attempts.setdefault(ip, []).append(time.time())
+        _attempts.setdefault("admin:any", []).append(time.time())
         flash("Wrong password.", "error")
     return render_template("admin_login.html")
 

@@ -7,12 +7,13 @@ A small self-hosted gift exchange (think Elfster, but yours).
 - **Organizer controls**: add people, set rules, draw names, reset or start next year. The page saves as you go (no Save buttons; the My wish list page works the same way, with every gift open for editing), shows a small "Saved ✓" confirmation, and updates in place without reloading. The organizer can't see who has whom, so you stay surprised too.
 - **Shareable wish list page**: every person also gets a separate public link (`/list/...`) for their wish list alone, shown on the landing page with Copy link and Text it buttons. It has no Secret Santa wording and shows no one else's information, so they can send it to anyone (grandparents, friends, anyone outside the exchange). It's separate from the private link, so sharing it never reveals who anyone drew. It's hidden from search engines, but anyone with the link can view it.
 - **Checking things off**: anyone with the link, family or not, can tap **I bought this** on a gift. Everyone else then sees an anonymous "Already bought", and only the person who checked it can undo it. The list's owner never sees the checkmarks. (The site recognises the owner by their browser, after they've opened their private link. If they open their own shared link on a device that has never opened their private link, they'd see the checkmarks, so keep that one for others.)
-- **Phone-number sign-in**: no passwords or accounts. The organizer enters each person's name and mobile number; family type their number on the main page and see "Welcome, <name>". The landing page lists everyone, each name linking to that person's public wish list, and shows who you're buying for once names are drawn. Your own entry shows your shareable link (Copy link / Text it) and an Edit my list button instead, and opening your own public list is blocked so you can't spoil what's been bought for you.
+- **Phone-number sign-in**: no passwords or accounts. The organizer enters each person's name and mobile number; family type their number on the main page and see "Welcome, <name>". The landing page lists everyone, each name linking to that person's public wish list, and shows who you're buying for once names are drawn. Every row has a Copy link button, and your own row has Edit list instead of opening your public list, and opening your own public list is blocked so you can't spoil what's been bought for you.
 
 ## Run it
 
 ```bash
-# 1. Edit ADMIN_PASSWORD in docker-compose.yml
+# 1. Put your organizer password in a file named .env (it is never committed to git):
+echo 'ADMIN_PASSWORD=pick-something-long' > .env
 docker compose up -d --build
 # 2. Open http://localhost:8000 and click "Organizer"
 ```
@@ -45,7 +46,7 @@ If you don't set `ADMIN_PASSWORD`, one is generated on first start, printed in t
 
 | Variable | Purpose |
 |---|---|
-| `ADMIN_PASSWORD` | Organizer password |
+| `ADMIN_PASSWORD` | Organizer password (at least 8 characters; placeholders like "change-me" are refused). Organizer sign-in lasts 12 hours and is rate limited |
 | `BASE_URL` | Public address used in personal links, e.g. `https://santa.example.com` |
 | `COOKIE_SECURE=1` | Set once you serve over HTTPS |
 | `TRUST_PROXY=1` | Set when behind a reverse proxy or port forwarder, so links use its address |
