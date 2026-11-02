@@ -1,0 +1,4 @@
+{$DOMAIN} {
+	encode gzip
+	reverse_proxy santa:8000
+}

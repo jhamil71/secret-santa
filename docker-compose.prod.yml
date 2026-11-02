@@ -1,0 +1,35 @@
+# Production setup: the app plus Caddy, which gets and renews the HTTPS certificate by itself.
+# Needs a .env file next to this one containing:
+#   DOMAIN=santa.yourdomain.com
+#   ADMIN_PASSWORD=a-long-password-of-your-own
+# Start with:  docker compose -f docker-compose.prod.yml up -d --build
+services:
+  santa:
+    build: .
+    restart: unless-stopped
+    expose:
+      - "8000"                 # only Caddy can reach the app; it isn't open to the internet directly
+    environment:
+      ADMIN_PASSWORD: "${ADMIN_PASSWORD:?Add ADMIN_PASSWORD=... to the .env file}"
+      BASE_URL: "https://${DOMAIN:?Add DOMAIN=... to the .env file}"
+      TRUST_PROXY: "1"
+      COOKIE_SECURE: "1"
+    volumes:
+      - ./data:/app/data       # the database and pictures live here; back this folder up
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: "${DOMAIN}"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data       # keeps the certificate between restarts
+    depends_on:
+      - santa
+
+volumes:
+  caddy_data:

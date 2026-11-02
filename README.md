@@ -27,6 +27,10 @@ ADMIN_PASSWORD=choose-one python app.py      # http://localhost:8000
 
 If you don't set `ADMIN_PASSWORD`, one is generated on first start, printed in the terminal, and saved in `data/admin_password.txt`.
 
+### On the internet
+
+See [DEPLOY.md](DEPLOY.md) for a step-by-step guide (small server, domain name, automatic HTTPS).
+
 ### From your phone (GitHub Codespaces)
 
 1. On github.com, open this repo, tap **Code → Codespaces → Create codespace on main**.
