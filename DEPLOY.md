@@ -1,5 +1,7 @@
 # Putting the site on the internet
 
+(Free option: see [DEPLOY-ORACLE.md](DEPLOY-ORACLE.md). This page is the general version for any paid server.)
+
 You need two things: a small always-on computer (a "server") and a domain name.
 
 ## 1. Rent a small server
