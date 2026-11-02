@@ -269,7 +269,7 @@ a.person:hover::after { color: var(--cranberry); }
 .people > li.you .pcount { font-size: .85rem; }
 
 /* heading names the giftee, marked in the same sage as their row */
-.giftee-name { background: #bfd3bc; padding: 0 .3em; margin: 0 -.05em; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
+.giftee-name { color: #4a7446; }
 
 /* rows you can open: a real button-looking arrow, and the whole row reacts */
 .people > li.other .person::after {
