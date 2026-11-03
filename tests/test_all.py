@@ -109,6 +109,14 @@ def test_clean_url_rejects_scripts():
 @pytest.fixture()
 def client(tmp_path, monkeypatch):
     monkeypatch.setattr(app_module, "DB_PATH", str(tmp_path / "t.db"))
+    fake = None
+    if os.environ.get("TEST_TURSO"):
+        # Same tests, but the app talks to a (fake) Turso server over HTTP instead of opening the file itself.
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        from fake_turso import FakeTurso
+        fake = FakeTurso(str(tmp_path / "t.db"))
+        monkeypatch.setenv("TURSO_DATABASE_URL", fake.url)
+        monkeypatch.setenv("TURSO_AUTH_TOKEN", "secret-token")
     app_module._attempts.clear()
     app_module.init_db()
     app_module.app.config["TESTING"] = True
@@ -117,7 +125,9 @@ def client(tmp_path, monkeypatch):
     with c.session_transaction() as s:
         s["admin"] = True
         s["admin_at"] = time.time()
-    return c
+    yield c
+    if fake:
+        fake.stop()
 
 
 def _csrf(c):
@@ -385,7 +395,7 @@ def test_autosave_json_replies(client):
         return client.post(path, data=data, headers=JSON)
 
     def setting(key):
-        return app_module.sqlite3.connect(app_module.DB_PATH).execute(
+        return sqlite3.connect(app_module.DB_PATH).execute(
             "SELECT value FROM settings WHERE key=?", (key,)).fetchone()[0]
 
     # each checkbox saves on its own, without touching the other

@@ -1,0 +1,11 @@
+data
+backups
+tests
+deploy
+scripts
+docker-compose.yml
+docker-compose.prod.yml
+Caddyfile
+Dockerfile
+.devcontainer
+*.md

@@ -29,7 +29,9 @@ If you don't set `ADMIN_PASSWORD`, one is generated on first start, printed in t
 
 ### On the internet
 
-See [DEPLOY.md](DEPLOY.md) for a step-by-step guide (small server, domain name, automatic HTTPS).
+- Free, from your phone: [DEPLOY-VERCEL.md](DEPLOY-VERCEL.md) (Vercel plus a free Turso database).
+- Free server: [DEPLOY-ORACLE.md](DEPLOY-ORACLE.md).
+- Any paid server: [DEPLOY.md](DEPLOY.md) for a step-by-step guide (small server, domain name, automatic HTTPS).
 
 ### From your phone (GitHub Codespaces)
 
@@ -55,6 +57,8 @@ See [DEPLOY.md](DEPLOY.md) for a step-by-step guide (small server, domain name, 
 | `COOKIE_SECURE=1` | Set once you serve over HTTPS |
 | `TRUST_PROXY=1` | Set when behind a reverse proxy or port forwarder, so links use its address |
 | `DATA_DIR` | Where the database lives (default `./data`) |
+| `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN` | Use a hosted Turso database instead of the local file (needed on Vercel; pictures are then stored in it too) |
+| `SECRET_KEY` | Session signing key (required on Vercel; generated into `data/` elsewhere) |
 
 ## Good to know
 
@@ -71,6 +75,7 @@ See [DEPLOY.md](DEPLOY.md) for a step-by-step guide (small server, domain name, 
 
 ```bash
 pip install pytest && python -m pytest tests -q
+TEST_TURSO=1 python -m pytest tests/test_all.py -q    # same tests against a fake hosted database
 # optional browser tests (organizer page, and the family's sign-in journey):
 pip install playwright && playwright install chromium
 python tests/e2e_browser.py && python tests/e2e_member.py

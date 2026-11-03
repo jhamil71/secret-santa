@@ -2,7 +2,6 @@
 import os
 import re
 import secrets
-import sqlite3
 import time
 from datetime import datetime
 from functools import wraps
@@ -11,11 +10,13 @@ from urllib.parse import urlparse
 from flask import (Flask, abort, flash, g, jsonify, redirect, render_template,
                    request, send_from_directory, session, url_for)
 
+import dbconn
 from draw import find_assignment
 from preview import cache_image, fetch_preview, site_name
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
-DATA_DIR = os.environ.get("DATA_DIR", os.path.join(APP_DIR, "data"))
+ON_VERCEL = bool(os.environ.get("VERCEL"))      # Vercel has no permanent disk: settings come from environment variables
+DATA_DIR = os.environ.get("DATA_DIR") or ("/tmp/santa" if ON_VERCEL else os.path.join(APP_DIR, "data"))
 os.makedirs(DATA_DIR, exist_ok=True)
 DB_PATH = os.path.join(DATA_DIR, "santa.db")
 IMG_DIR = os.path.join(DATA_DIR, "img")
@@ -33,8 +34,14 @@ def _persisted_secret(filename, nbytes):
     return value, True
 
 
-SECRET_KEY, _ = _persisted_secret("secret_key.txt", 32)
+SECRET_KEY = os.environ.get("SECRET_KEY")
+if not SECRET_KEY:
+    if ON_VERCEL:
+        raise SystemExit("Set a SECRET_KEY environment variable (any long random text) in your Vercel project settings.")
+    SECRET_KEY, _ = _persisted_secret("secret_key.txt", 32)
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD")
+if ON_VERCEL and not ADMIN_PASSWORD:
+    raise SystemExit("Set an ADMIN_PASSWORD environment variable in your Vercel project settings.")
 _PLACEHOLDERS = {"change-me", "changeme", "password", "admin", "secret", "santa", "christmas", "12345678"}
 if ADMIN_PASSWORD and (len(ADMIN_PASSWORD) < 8 or ADMIN_PASSWORD.lower() in _PLACEHOLDERS):
     raise SystemExit("ADMIN_PASSWORD is too weak or still a placeholder. Use at least 8 characters that "
@@ -50,12 +57,13 @@ app.config.update(
     SECRET_KEY=SECRET_KEY,
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Lax",
-    SESSION_COOKIE_SECURE=(os.environ.get("COOKIE_SECURE") == "1"
+    SESSION_COOKIE_SECURE=(os.environ.get("COOKIE_SECURE") == "1" or ON_VERCEL
                            or (os.environ.get("BASE_URL") or "").startswith("https://")),
     PERMANENT_SESSION_LIFETIME=60 * 60 * 24 * 30,
+    SEND_FILE_MAX_AGE_DEFAULT=60 * 60,
 )
 
-if os.environ.get("TRUST_PROXY") == "1":
+if os.environ.get("TRUST_PROXY") == "1" or ON_VERCEL:
     # Behind a reverse proxy / port forwarder: use its host and https so links come out right.
     from werkzeug.middleware.proxy_fix import ProxyFix
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
@@ -83,7 +91,9 @@ CREATE TABLE IF NOT EXISTS items(
     bought_by TEXT, image_checked INTEGER,
     created TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
 CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT);
+CREATE TABLE IF NOT EXISTS images(name TEXT PRIMARY KEY, ctype TEXT NOT NULL, data BLOB NOT NULL);
 """
+SCHEMA_VERSION = "8"   # bump when the schema or DEFAULTS change; lets a cold start skip the setup below
 DEFAULTS = {
     "year": str(datetime.now().year),
     "avoid_swaps": "1", "avoid_last": "1", "drawn_at": "",
@@ -91,7 +101,13 @@ DEFAULTS = {
 
 
 def init_db():
-    with sqlite3.connect(DB_PATH) as c:
+    c = dbconn.connect(DB_PATH)
+    try:
+        try:
+            if c.execute("SELECT value FROM settings WHERE key='schema_v'").fetchone()["value"] == SCHEMA_VERSION:
+                return                                   # already set up (saves a dozen round trips on a cold start)
+        except (dbconn.OperationalError, TypeError):
+            pass
         c.executescript(SCHEMA)
         # Upgrade databases created by earlier versions.
         pcols = {r[1] for r in c.execute("PRAGMA table_info(people)")}
@@ -115,6 +131,10 @@ def init_db():
                           "WHERE receiver_id=items.person_id) WHERE purchased=1")
         for k, v in DEFAULTS.items():
             c.execute("INSERT OR IGNORE INTO settings(key, value) VALUES (?, ?)", (k, v))
+        c.execute("INSERT OR REPLACE INTO settings(key, value) VALUES ('schema_v', ?)", (SCHEMA_VERSION,))
+        c.commit()
+    finally:
+        c.close()
 
 
 init_db()
@@ -122,9 +142,7 @@ init_db()
 
 def db():
     if "db" not in g:
-        g.db = sqlite3.connect(DB_PATH, timeout=10)
-        g.db.row_factory = sqlite3.Row
-        g.db.execute("PRAGMA foreign_keys=ON")
+        g.db = dbconn.connect(DB_PATH)
     return g.db
 
 
@@ -154,13 +172,17 @@ def current_person():
     pid = session.get("me_id")
     if not pid:
         return None
+    if g.get("_me_for") == pid:                 # looked up once per request (each lookup can be a network round trip)
+        return g._me
     p = db().execute("SELECT * FROM people WHERE id=?", (pid,)).fetchone()
     if not p:
         session.pop("me_id", None)
+    g._me_for, g._me = pid, p
     return p
 
 
 def sign_in(person):
+    g.pop("_me_for", None)
     session["me_id"] = person["id"]
     session.permanent = True
 
@@ -268,7 +290,16 @@ def keep_picture(image_url, page_url=None):
     If the copy can't be made, fall back to the store's own picture address."""
     if not image_url or image_url.startswith("/img/"):
         return image_url or None
-    return cache_image(image_url, IMG_DIR, referer=page_url) or image_url
+    return cache_image(image_url, IMG_DIR, referer=page_url,
+                       store=_save_image if dbconn.turso_configured() else None) or image_url
+
+
+def _save_image(name, ext, data):
+    """Without a disk (Vercel), pictures live in the database, named by their content hash."""
+    d = db()
+    d.execute("INSERT OR IGNORE INTO images(name, ctype, data) VALUES (?, ?, ?)",
+              (name, "image/" + ("jpeg" if ext == "jpg" else ext), data))
+    d.commit()
 
 
 @app.template_filter("site")
@@ -280,7 +311,14 @@ def _site_filter(url):
 def cached_image(name):
     if not re.fullmatch(r"[0-9a-f]{40}\.(jpg|png|gif|webp)", name):
         abort(404)
-    resp = send_from_directory(IMG_DIR, name, max_age=31536000)
+    if dbconn.turso_configured():
+        row = db().execute("SELECT ctype, data FROM images WHERE name=?", (name,)).fetchone()
+        if not row:
+            abort(404)
+        resp = app.response_class(row["data"], mimetype=row["ctype"])
+        resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+    else:
+        resp = send_from_directory(IMG_DIR, name, max_age=31536000)
     resp.headers["X-Content-Type-Options"] = "nosniff"
     return resp
 
@@ -528,7 +566,7 @@ def add_exclusion():
         for x, y in rows:
             d.execute("INSERT OR IGNORE INTO exclusions(giver_id, receiver_id) VALUES (?, ?)", (x, y))
         d.commit()
-    except sqlite3.IntegrityError:
+    except dbconn.IntegrityError:
         flash("One of those people no longer exists.", "error")
     return redirect(url_for("admin"))
 

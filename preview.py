@@ -32,7 +32,9 @@ MAX_PAGE_BYTES = 2_000_000
 MAX_IMAGE_BYTES = 4_000_000
 MIN_IMAGE_BYTES = 1_200          # smaller than this is a tracking pixel or a "not found" placeholder
 MAX_REDIRECTS = 4
-TOTAL_BUDGET_SECONDS = 15        # all attempts for one link together
+ON_VERCEL = bool(os.environ.get("VERCEL"))
+TOTAL_BUDGET_SECONDS = int(os.environ.get("PREVIEW_BUDGET") or (7 if ON_VERCEL else 15))   # all attempts for one link
+IMAGE_BUDGET_SECONDS = 5 if ON_VERCEL else 12
 CURRENCY_SYMBOLS = {"USD": "$", "EUR": "€", "GBP": "£", "CAD": "CA$", "AUD": "A$"}
 
 
@@ -237,12 +239,13 @@ def _sniff_image(data):
     return None
 
 
-def cache_image(image_url, dest_dir, referer=None):
+def cache_image(image_url, dest_dir, referer=None, store=None):
     """Download a picture, check it really is one, and save it under its content hash.
 
     Returns '/img/<name>' (served by the app) or None if it can't be fetched or isn't an image.
+    `store(name, ext, data)`, if given, keeps the picture somewhere other than dest_dir.
     """
-    deadline = time.time() + 12
+    deadline = time.time() + IMAGE_BUDGET_SECONDS
     for ua in (BROWSER_UA, AGENTS[1]):
         try:
             r = _open(image_url, ua, deadline, referer=referer, accept="image/*,*/*;q=0.5")
@@ -255,8 +258,11 @@ def cache_image(image_url, dest_dir, referer=None):
             continue
         ext = _sniff_image(data)
         if ext and MIN_IMAGE_BYTES <= len(data) <= MAX_IMAGE_BYTES:
-            os.makedirs(dest_dir, exist_ok=True)
             name = f"{hashlib.sha1(data).hexdigest()}.{ext}"
+            if store:                                   # e.g. the database, when there is no disk
+                store(name, ext, data)
+                return f"/img/{name}"
+            os.makedirs(dest_dir, exist_ok=True)
             path = os.path.join(dest_dir, name)
             if not os.path.exists(path):
                 tmp = path + ".part"
