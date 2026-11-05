@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}Gift pictures | Organizer{% endblock %}
+{% block nav %}<a href="{{ url_for('admin') }}">Organizer</a>{% endblock %}
+{% block content %}
+<h1>Gift pictures</h1>
+<p class="muted">Every gift that has a link. Press <strong>Check all</strong> to look each one up again right now. For each it shows what the store answered, which tells us why a picture is missing. Pictures that can be found are saved as it goes.</p>
+<p><button class="btn" id="check-all" type="button">Check all</button> <span class="muted" id="tally"></span></p>
+<table>
+  <thead><tr><th>Gift</th><th>Picture</th><th>Result</th></tr></thead>
+  <tbody>
+  {% for it in items %}
+    <tr data-id="{{ it.id }}">
+      <td><strong>{{ it.name }}</strong>: {{ it.title }}<br><a class="muted" href="{{ it.url }}" target="_blank" rel="noopener noreferrer">{{ it.url|site }}</a></td>
+      <td class="pic">{{ 'yes' if it.image else 'none' }}</td>
+      <td class="res muted"></td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}
+{% block scripts %}
+<script>
+(function () {
+  var CSRF = document.querySelector('meta[name=csrf]').content, rows = [].slice.call(document.querySelectorAll('tbody tr'));
+  var ok = 0, bad = 0, tally = document.getElementById('tally'), btn = document.getElementById('check-all');
+  function esc(s) { var d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+  function one(tr) {
+    tr.querySelector('.res').textContent = 'Checking...';
+    return fetch('/admin/pictures/' + tr.dataset.id + '/check', { method: 'POST', credentials: 'same-origin', headers: { 'X-CSRF': CSRF } })
+      .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function (d) {
+        var lines = (d.attempts || []).map(function (a) {
+          return esc(a.as + ': ' + (a.status || 'no answer') + (a.found_image ? ', picture tag found' : ', ' + a.note));
+        }).concat((d.notes || []).map(esc));
+        tr.querySelector('.pic').textContent = d.cached ? 'saved' : (d.image ? 'store link only' : 'none');
+        tr.querySelector('.res').innerHTML = '<strong>' + (d.cached ? 'Works' : 'No picture') + '</strong><br>' + lines.join('<br>');
+        if (d.cached) ok++; else bad++;
+      })
+      .catch(function (e) { tr.querySelector('.res').textContent = 'The check itself failed: ' + e.message + ' (probably timed out)'; bad++; })
+      .then(function () { tally.textContent = ok + ' with pictures, ' + bad + ' without, of ' + rows.length; });
+  }
+  btn.addEventListener('click', function () {
+    btn.disabled = true; ok = bad = 0;
+    rows.reduce(function (p, tr) { return p.then(function () { return one(tr); }); }, Promise.resolve())
+      .then(function () { btn.disabled = false; btn.textContent = 'Check all again'; });
+  });
+})();
+</script>
+{% endblock %}

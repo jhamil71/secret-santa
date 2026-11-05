@@ -635,3 +635,24 @@ def test_organizer_login_hardening(client, monkeypatch):
     for _ in range(10):
         bad.post("/admin/login", data={"csrf": _csrf(bad), "password": "nope-nope"})
     assert bad.post("/admin/login", data={"csrf": _csrf(bad), "password": "test-password"}).status_code == 429
+
+
+def test_admin_picture_checker(client, monkeypatch):
+    # the organizer tool lists gifts with links and re-checks one, reporting what the store said
+    p = post(client, "/admin/people", name="Ann", phone="555 100 0000")
+    db = rows()
+    pid = db.execute("SELECT id FROM people").fetchone()[0]
+    db.execute("INSERT INTO items(person_id, title, url) VALUES (?, 'Saw', 'https://store.example/saw')", (pid,))
+    db.commit()
+    item_id = db.execute("SELECT id FROM items").fetchone()[0]
+    page = client.get("/admin/pictures").data.decode()
+    assert "Saw" in page and "store.example" in page
+    monkeypatch.setattr(app_module, "fetch_preview", lambda url: {
+        "image": None, "price": "$9.00", "error": "No product details found.",
+        "attempts": [{"as": "browser", "status": 403, "found_image": False, "note": "The site refused the request (403)."}]})
+    r = client.post(f"/admin/pictures/{item_id}/check", headers={"X-CSRF": _csrf(client)})
+    j = r.get_json()
+    assert r.status_code == 200 and j["ok"] is False and j["attempts"][0]["status"] == 403
+    assert rows().execute("SELECT price FROM items").fetchone()[0] == "$9.00"
+    # visitors who aren't the organizer can't use it
+    assert app_module.app.test_client().get("/admin/pictures").status_code == 302

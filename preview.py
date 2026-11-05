@@ -239,7 +239,7 @@ def _sniff_image(data):
     return None
 
 
-def cache_image(image_url, dest_dir, referer=None, store=None):
+def cache_image(image_url, dest_dir, referer=None, store=None, diag=None):
     """Download a picture, check it really is one, and save it under its content hash.
 
     Returns '/img/<name>' (served by the app) or None if it can't be fetched or isn't an image.
@@ -251,12 +251,18 @@ def cache_image(image_url, dest_dir, referer=None, store=None):
             r = _open(image_url, ua, deadline, referer=referer, accept="image/*,*/*;q=0.5")
             if r.status_code >= 400:
                 r.close()
+                if diag is not None:
+                    diag.append(f"picture download refused ({r.status_code})")
                 continue
             data = r.raw.read(MAX_IMAGE_BYTES + 1, decode_content=True)
             r.close()
-        except (UnsafeURL, requests.RequestException):
+        except (UnsafeURL, requests.RequestException) as e:
+            if diag is not None:
+                diag.append(f"picture download failed ({type(e).__name__})")
             continue
         ext = _sniff_image(data)
+        if diag is not None and not (ext and MIN_IMAGE_BYTES <= len(data) <= MAX_IMAGE_BYTES):
+            diag.append("downloaded file is not a usable picture" if not ext else f"picture size unusable ({len(data)} bytes)")
         if ext and MIN_IMAGE_BYTES <= len(data) <= MAX_IMAGE_BYTES:
             name = f"{hashlib.sha1(data).hexdigest()}.{ext}"
             if store:                                   # e.g. the database, when there is no disk
@@ -282,41 +288,46 @@ def amazon_picture(url):
 
 
 def _page_meta(url, ua, deadline):
-    """One attempt at one page. Returns (metadata dict, problem message or None)."""
+    """One attempt at one page. Returns (metadata dict, problem message or None, HTTP status)."""
     r = _open(url, ua, deadline)
     ctype = (r.headers.get("Content-Type") or "").lower()
     if r.status_code >= 400:
         r.close()
-        return {}, f"The site refused the request ({r.status_code})."
+        return {}, f"The site refused the request ({r.status_code}).", r.status_code
     if ctype.startswith("image/"):                      # the link is itself a picture
         r.close()
-        return {"image": r.final_url}, None
+        return {"image": r.final_url}, None, r.status_code
     if "html" not in ctype and "xml" not in ctype and ctype:
         r.close()                                       # a PDF, say: nothing to preview, but not an error
         name = unquote(urlparse(r.final_url).path.rsplit("/", 1)[-1])
-        return {"title": re.sub(r"[-_]+", " ", os.path.splitext(name)[0]).strip()[:200] or None}, None
+        return {"title": re.sub(r"[-_]+", " ", os.path.splitext(name)[0]).strip()[:200] or None}, None, r.status_code
     body = r.raw.read(MAX_PAGE_BYTES, decode_content=True)
     r.close()
-    return parse_metadata(body, r.final_url), None
+    return parse_metadata(body, r.final_url), None, r.status_code
 
 
 def fetch_preview(url):
     """Return {ok, title, image, price, site, error}. Never raises. `image` is the store's own address
     for the picture; call cache_image() to keep a copy."""
-    out = {"ok": False, "title": None, "image": None, "price": None, "site": site_name(url), "error": None}
+    out = {"ok": False, "title": None, "image": None, "price": None, "site": site_name(url), "error": None,
+           "attempts": []}
     deadline = time.time() + TOTAL_BUDGET_SECONDS
     problem = None
     for ua in AGENTS:
         if time.time() >= deadline:
             break
+        who = {AGENTS[0]: "browser", AGENTS[1]: "facebook crawler", AGENTS[2]: "twitter crawler"}.get(ua, "other")
         try:
-            meta, why = _page_meta(url, ua, deadline)
+            meta, why, status = _page_meta(url, ua, deadline)
         except UnsafeURL as e:
             out["error"] = str(e)
             return out
-        except requests.RequestException:
+        except requests.RequestException as e:
             problem = problem or "Couldn't reach that page."
+            out["attempts"].append({"as": who, "status": None, "found_image": False, "note": type(e).__name__})
             continue
+        out["attempts"].append({"as": who, "status": status, "found_image": bool(meta.get("image")),
+                                "note": why or ("no picture tag in the page" if not meta.get("image") else "ok")})
         problem = why or problem
         for k in ("title", "image", "price"):
             out[k] = out[k] or meta.get(k)

@@ -285,12 +285,12 @@ def inject_globals():
 app.jinja_env.filters["site"] = site_name
 
 
-def keep_picture(image_url, page_url=None):
+def keep_picture(image_url, page_url=None, diag=None):
     """Save a copy of a gift picture on our own server, so it never depends on the store again.
     If the copy can't be made, fall back to the store's own picture address."""
     if not image_url or image_url.startswith("/img/"):
         return image_url or None
-    return cache_image(image_url, IMG_DIR, referer=page_url,
+    return cache_image(image_url, IMG_DIR, referer=page_url, diag=diag,
                        store=_save_image if dbconn.turso_configured() else None) or image_url
 
 
@@ -861,6 +861,34 @@ def delete_item(me, item_id):
     d.execute("DELETE FROM items WHERE id=?", (item_id,))
     d.commit()
     return redirect(url_for("mine"))
+
+
+@app.get("/admin/pictures")
+@admin_required
+def admin_pictures():
+    """Organizer tool: which gifts have no picture, and why (what each store answered when we asked)."""
+    items = db().execute(
+        "SELECT i.id, i.title, i.url, i.image, p.name FROM items i JOIN people p ON p.id=i.person_id "
+        "WHERE i.url IS NOT NULL AND i.url != '' ORDER BY (i.image IS NULL) DESC, LOWER(p.name), i.id").fetchall()
+    return render_template("pictures.html", items=items)
+
+
+@app.post("/admin/pictures/<int:item_id>/check")
+@admin_required
+def admin_check_picture(item_id):
+    d = db()
+    item = d.execute("SELECT * FROM items WHERE id=?", (item_id,)).fetchone()
+    if not item or not item["url"]:
+        abort(404)
+    notes = []
+    info = fetch_preview(item["url"])
+    image = keep_picture(info.get("image"), item["url"], diag=notes) if info.get("image") else None
+    cached = bool(image and image.startswith("/img/"))
+    d.execute("UPDATE items SET image=COALESCE(?, image), price=COALESCE(price, ?), image_checked=? WHERE id=?",
+              (image, info.get("price"), int(time.time()), item_id))
+    d.commit()
+    return jsonify(ok=cached, image=image, found=bool(info.get("image")), cached=cached,
+                   attempts=info.get("attempts", []), notes=notes, error=info.get("error"))
 
 
 if __name__ == "__main__":
