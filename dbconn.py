@@ -98,7 +98,8 @@ def _decode(cell):
     if t == "float":
         return float(cell["value"])
     if t == "blob":
-        return base64.b64decode(cell.get("base64", ""))
+        b64 = cell.get("base64", "")
+        return base64.b64decode(b64 + "=" * (-len(b64) % 4))      # Turso sends it without the trailing '=' padding
     return cell.get("value")
 
 

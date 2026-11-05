@@ -24,6 +24,11 @@ def test_reads_writes_transactions_and_rows(turso):
     c = dbconn.connect("unused")
     c.executescript("CREATE TABLE t(id INTEGER PRIMARY KEY, name TEXT UNIQUE, n REAL, b BLOB);")
     c.execute("INSERT INTO t(name, n, b) VALUES (?, ?, ?)", ("ann", 1.5, b"\x00\x01\xff"))
+    c.execute("INSERT INTO t(name, b) VALUES (?, ?)", ("one-byte-short", b"ab"))   # base64 lengths that need padding
+    c.execute("INSERT INTO t(name, b) VALUES (?, ?)", ("one-byte", b"a"))
+    c.commit()
+    assert [r["b"] for r in c.execute("SELECT b FROM t WHERE name LIKE 'one%' ORDER BY name")] == [b"a", b"ab"]
+    c.execute("DELETE FROM t WHERE name LIKE 'one%'")
     c.commit()
     row = c.execute("SELECT * FROM t WHERE name=?", ("ann",)).fetchone()
     assert row["name"] == "ann" and row[0] == 1 and row["n"] == 1.5 and row["b"] == b"\x00\x01\xff"

@@ -32,7 +32,14 @@
         var lines = (d.attempts || []).map(function (a) {
           return esc(a.as + ': ' + (a.status || 'no answer') + (a.found_image ? ', picture tag found' : ', ' + a.note));
         }).concat((d.notes || []).map(esc));
-        tr.querySelector('.pic').textContent = d.cached ? 'saved' : (d.image ? 'store link only (may still show)' : 'none');
+        var pic = tr.querySelector('.pic');
+        pic.textContent = d.cached ? 'saved' : (d.image ? 'store link only (may still show)' : 'none');
+        if (d.image) {                                  // does it really display in this browser?
+          var im = new Image(); im.className = 'thumb'; im.alt = ''; im.referrerPolicy = 'no-referrer';
+          im.onload = function () { pic.appendChild(im); };
+          im.onerror = function () { var w = document.createElement('div'); w.textContent = 'WON\'T DISPLAY'; pic.appendChild(w); };
+          im.src = d.image;
+        }
         tr.querySelector('.res').innerHTML = '<strong>' + (d.cached ? 'Works' : 'No picture') + '</strong><br>' + lines.join('<br>');
         if (d.cached) ok++; else bad++;
       })

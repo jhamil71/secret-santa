@@ -19,7 +19,7 @@ def _enc(v):
     if isinstance(v, float):
         return {"type": "float", "value": v}
     if isinstance(v, bytes):
-        return {"type": "blob", "base64": base64.b64encode(v).decode()}
+        return {"type": "blob", "base64": base64.b64encode(v).decode().rstrip("=")}   # like the real server: no padding
     return {"type": "text", "value": v}
 
 
