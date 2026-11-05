@@ -882,6 +882,8 @@ def admin_check_picture(item_id):
         abort(404)
     notes = []
     info = fetch_preview(item["url"])
+    if info.get("image"):
+        notes.append("picture is hosted on " + site_name(info["image"]))
     image = keep_picture(info.get("image"), item["url"], diag=notes) if info.get("image") else None
     cached = bool(image and image.startswith("/img/"))
     d.execute("UPDATE items SET image=COALESCE(?, image), price=COALESCE(price, ?), image_checked=? WHERE id=?",
