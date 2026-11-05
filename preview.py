@@ -32,8 +32,14 @@ MAX_PAGE_BYTES = 2_000_000
 MAX_IMAGE_BYTES = 4_000_000
 MIN_IMAGE_BYTES = 1_200          # smaller than this is a tracking pixel or a "not found" placeholder
 MAX_REDIRECTS = 4
+# When a store refuses us outright (common from cloud hosts such as Vercel, whose addresses stores treat as
+# robots), ask outside link-preview services, which fetch from their own machines. Set LINK_PREVIEW_FALLBACKS=0
+# to keep gift links from ever being sent to another company.
+MICROLINK_API = "https://api.microlink.io/"
+JINA_READER = "https://r.jina.ai/"
+FALLBACKS_ENABLED = os.environ.get("LINK_PREVIEW_FALLBACKS", "1") != "0"
 ON_VERCEL = bool(os.environ.get("VERCEL"))
-TOTAL_BUDGET_SECONDS = int(os.environ.get("PREVIEW_BUDGET") or (7 if ON_VERCEL else 15))   # all attempts for one link
+TOTAL_BUDGET_SECONDS = int(os.environ.get("PREVIEW_BUDGET") or (12 if ON_VERCEL else 20))   # all attempts for one link
 IMAGE_BUDGET_SECONDS = 5 if ON_VERCEL else 12
 CURRENCY_SYMBOLS = {"USD": "$", "EUR": "€", "GBP": "£", "CAD": "CA$", "AUD": "A$"}
 
@@ -306,6 +312,30 @@ def _page_meta(url, ua, deadline):
     return parse_metadata(body, r.final_url), None, r.status_code
 
 
+def _microlink(url, deadline):
+    """Microlink: returns title and picture for a link, fetched from their servers."""
+    headers = {"Accept": "application/json", "User-Agent": "FamilySecretSanta/1.0"}
+    if os.environ.get("MICROLINK_API_KEY"):
+        headers["x-api-key"] = os.environ["MICROLINK_API_KEY"]
+    left = max(deadline - time.time(), 1.0)
+    r = requests.get(MICROLINK_API, params={"url": url}, headers=headers, timeout=(4, min(9, left)))
+    if r.status_code != 200:
+        return {}, f"service answered {r.status_code}", r.status_code
+    d = (r.json().get("data") or {})
+    image = (d.get("image") or {}).get("url")
+    return {"title": clean_title(d.get("title"), d.get("publisher"), url), "image": image}, None, r.status_code
+
+
+def _jina(url, deadline):
+    """Jina Reader: loads the page in a real browser on their side and hands back the finished HTML."""
+    headers = {"X-Return-Format": "html", "Accept": "text/html", "User-Agent": "FamilySecretSanta/1.0"}
+    left = max(deadline - time.time(), 1.0)
+    r = requests.get(JINA_READER + url, headers=headers, timeout=(4, min(12, left)))
+    if r.status_code != 200:
+        return {}, f"service answered {r.status_code}", r.status_code
+    return parse_metadata(r.text[:MAX_PAGE_BYTES], url), None, r.status_code
+
+
 def fetch_preview(url):
     """Return {ok, title, image, price, site, error}. Never raises. `image` is the store's own address
     for the picture; call cache_image() to keep a copy."""
@@ -334,6 +364,21 @@ def fetch_preview(url):
         if out["image"]:
             break
     out["image"] = out["image"] or amazon_picture(url)
+    if FALLBACKS_ENABLED and not out["image"]:
+        for name, fn in (("microlink", _microlink), ("jina reader", _jina)):
+            if time.time() >= deadline:
+                break
+            try:
+                meta, why, status = fn(url, deadline)
+            except (requests.RequestException, ValueError) as e:
+                out["attempts"].append({"as": name, "status": None, "found_image": False, "note": type(e).__name__})
+                continue
+            out["attempts"].append({"as": name, "status": status, "found_image": bool(meta.get("image")),
+                                    "note": why or ("ok" if meta.get("image") else "no picture tag in the page")})
+            for k in ("title", "image", "price"):
+                out[k] = out[k] or meta.get(k)
+            if out["image"]:
+                break
     out["ok"] = bool(out["title"] or out["image"] or out["price"])
     if not out["ok"]:
         out["error"] = problem or "No product details found."

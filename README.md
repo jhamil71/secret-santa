@@ -67,7 +67,7 @@ If you don't set `ADMIN_PASSWORD`, one is generated on first start, printed in t
 
 - **Back up the `data/` folder.** It holds the database.
 - **Put it behind HTTPS** (a reverse proxy like Caddy, or a tunnel) if it's reachable from the internet.
-- **Link previews** read each store's page. If a store refuses automated visits the gift shows a tile with the store's name instead of a picture, and the price may need typing in. Amazon links get their picture from the product code.
+- **Link previews** read each store's page. Stores often refuse servers in the cloud (Vercel, for one) outright. When that happens the site asks two outside link-preview services (Microlink and Jina Reader), which fetch the page from their own machines, so those two companies see the gift link. Set `LINK_PREVIEW_FALLBACKS=0` to turn that off, or `MICROLINK_API_KEY` if you have a paid key (the free allowance is small). The organizer page *Check gift pictures* shows what each store answered. If nothing works, the gift shows a tile with the store's name instead of a picture, and the price may need typing in. Amazon links get their picture from the product code.
 - **Fonts** (Besley and Public Sans) are bundled in `static/fonts` under the SIL Open Font License, so the site makes no outside requests.
 - The organizer runs the server, so a determined organizer could still read the database. The app simply keeps the matches off the dashboard.
 

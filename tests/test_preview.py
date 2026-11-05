@@ -58,6 +58,14 @@ class Store(BaseHTTPRequestHandler):
             if "facebookexternalhit" in ua or "Twitterbot" in ua:
                 return self.send(200, page("/pics/saw.png"))
             return self.send(403, b"Access Denied")
+        if p.startswith("/microlink"):                      # stand-in for the Microlink service
+            if "blocked-for-them-too" in p:
+                return self.send(200, b'{"status":"fail","data":{}}', "application/json")
+            body = ('{"status":"success","data":{"title":"Lego Orchid - LEGO","publisher":"LEGO",'
+                    '"image":{"url":"%s/pics/saw.png"}}}' % self.server.base).encode()
+            return self.send(200, body, "application/json")
+        if p.startswith("/jina/"):                          # stand-in for Jina Reader (returns the finished page)
+            return self.send(200, page("/pics/saw.png", title="Jina Page - Shop"))
         if p == "/blocks-everyone":
             return self.send(403, b"Access Denied")
         if p == "/no-image":
@@ -94,8 +102,9 @@ class Store(BaseHTTPRequestHandler):
 @pytest.fixture(scope="module")
 def store():
     srv = ThreadingHTTPServer(("127.0.0.1", 0), Store)
+    srv.base = f"http://127.0.0.1:{srv.server_port}"
     threading.Thread(target=srv.serve_forever, daemon=True).start()
-    yield f"http://127.0.0.1:{srv.server_port}"
+    yield srv.base
     srv.shutdown()
 
 
@@ -174,3 +183,26 @@ def test_private_addresses_still_refused(monkeypatch):
     for bad in ["http://127.0.0.1/", "http://169.254.169.254/latest/", "http://10.0.0.5/x"]:
         r = preview.fetch_preview(bad)
         assert r["ok"] is False and r["image"] is None
+
+
+def test_outside_services_fill_in_when_the_store_refuses_us(store, monkeypatch):
+    monkeypatch.setattr(preview, "FALLBACKS_ENABLED", True)
+    monkeypatch.setattr(preview, "MICROLINK_API", store + "/microlink")
+    monkeypatch.setattr(preview, "JINA_READER", store + "/jina/")
+    r = preview.fetch_preview(store + "/blocks-everyone")
+    assert r["image"] == store + "/pics/saw.png" and r["title"] == "Lego Orchid"
+    assert [a["as"] for a in r["attempts"]] == ["browser", "facebook crawler", "twitter crawler", "microlink"]
+    assert [a["status"] for a in r["attempts"]] == [403, 403, 403, 200]
+    # if the first service has nothing, the second is tried
+    monkeypatch.setattr(preview, "MICROLINK_API", store + "/microlink-blocked-for-them-too")
+    r = preview.fetch_preview(store + "/blocks-everyone")
+    assert r["image"] == store + "/pics/saw.png" and r["attempts"][-1]["as"] == "jina reader"
+    # turned off, nothing outside is asked
+    monkeypatch.setattr(preview, "FALLBACKS_ENABLED", False)
+    r = preview.fetch_preview(store + "/blocks-everyone")
+    assert r["image"] is None and len(r["attempts"]) == 3
+    # an unsafe link is never passed along to anyone
+    monkeypatch.undo()
+    monkeypatch.setattr(preview, "FALLBACKS_ENABLED", True)
+    r = preview.fetch_preview("http://127.0.0.1/")
+    assert r["ok"] is False and not any(a["as"] in ("microlink", "jina reader") for a in r["attempts"])
