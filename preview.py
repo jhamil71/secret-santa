@@ -435,5 +435,5 @@ def fetch_preview(url):
         out["error"] = "The store showed a robot check instead of the product."
     out["ok"] = bool(out["title"] or out["image"] or out["price"])
     if not out["ok"]:
-        out["error"] = problem or "No product details found."
+        out["error"] = out["error"] or problem or "No product details found."
     return out
