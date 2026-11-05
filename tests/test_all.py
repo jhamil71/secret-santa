@@ -611,7 +611,7 @@ def test_landing_message_is_fixed_text(client):
     page = member(phone="555 100 0000").get("/").data.decode()
     assert "Welcome, Ann." in page and "Don’t wait if you see something on your giftee’s wish list" in page
     assert "your giftee may be sharing this wish list with outside folks too!" in page
-    assert "Try to spend no more than $200. Have fun!" in page
+    assert "Try to spend no more than $100. Have fun!" in page
     assert "Budget:" not in page
 
 
