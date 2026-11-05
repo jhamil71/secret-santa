@@ -66,6 +66,8 @@ class Store(BaseHTTPRequestHandler):
             return self.send(200, body, "application/json")
         if p.startswith("/jina/"):                          # stand-in for Jina Reader (returns the finished page)
             return self.send(200, page("/pics/saw.png", title="Jina Page - Shop"))
+        if p.startswith("/wsrv"):                           # stand-in for the image proxy
+            return self.send(200, PNG, "image/png")
         if p == "/blocks-everyone":
             return self.send(403, b"Access Denied")
         if p == "/no-image":
@@ -206,3 +208,14 @@ def test_outside_services_fill_in_when_the_store_refuses_us(store, monkeypatch):
     monkeypatch.setattr(preview, "FALLBACKS_ENABLED", True)
     r = preview.fetch_preview("http://127.0.0.1/")
     assert r["ok"] is False and not any(a["as"] in ("microlink", "jina reader") for a in r["attempts"])
+
+
+def test_picture_the_store_refuses_is_fetched_through_the_image_proxy(store, tmp_path, monkeypatch):
+    monkeypatch.setattr(preview, "FALLBACKS_ENABLED", True)
+    monkeypatch.setattr(preview, "IMAGE_PROXY", store + "/wsrv")
+    notes = []
+    got = preview.cache_image(store + "/pics/guarded.png", str(tmp_path), diag=notes)    # refused without a Referer
+    assert got and (tmp_path / got.split("/")[-1]).read_bytes() == PNG
+    assert "picture saved via picture proxy" in notes
+    monkeypatch.setattr(preview, "FALLBACKS_ENABLED", False)
+    assert preview.cache_image(store + "/pics/guarded.png", str(tmp_path / "other")) is None
