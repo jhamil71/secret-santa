@@ -668,10 +668,10 @@ def test_robot_check_pages_never_become_gift_pictures(client, monkeypatch):
     monkeypatch.setattr(app_module, "cache_image", lambda *a, **k: None)         # the picture can't be copied
     with app_module.app.test_request_context():
         resolve = app_module.resolve_picture
-        # from the store's own page: the store's picture address is kept (browsers can usually load it)
+        # the store's picture address is kept when we can't copy it (browsers can usually load it)
         assert resolve({"image": "https://cdn.shop/a.jpg", "image_source": "store"}, "https://shop/p") == "https://cdn.shop/a.jpg"
-        # from an outside service and not copyable: dropped, rather than risk a wrong picture
-        assert resolve({"image": "https://cdn.shop/a.jpg", "image_source": "outside service"}, "https://shop/p") is None
+        # from an outside service and not copyable: still kept as an address, unless it looks like a robot-check logo
+        assert resolve({"image": "https://cdn.shop/a.jpg", "image_source": "outside service"}, "https://shop/p") == "https://cdn.shop/a.jpg"
         # a robot-check logo is dropped either way
         assert resolve({"image": "https://www.akamai.com/x.png", "image_source": "store"}, "https://shop/p") is None
         # our own saved copy passes straight through

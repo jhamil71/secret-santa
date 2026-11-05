@@ -304,13 +304,13 @@ def keep_picture(image_url, page_url=None, diag=None, hotlink_ok=False):
 
 
 def resolve_picture(info, page_url, diag=None):
-    """The picture to keep for a looked-up link: our own copy when we can make one. If we can't, the store's picture
-    address is used only when the store's own page gave it to us. An address that came from an outside service
-    is dropped, since it may be a robot-check logo and not the product."""
+    """The picture to keep for a looked-up link: our own copy when we can make one. When we can't (the picture's server
+    refuses ours), the store's own picture address is kept so browsers can still load it, unless it looks like a
+    robot-check page's logo."""
     img = info.get("image")
     if not img or looks_like_block_page(info.get("title"), img):
         return None
-    return keep_picture(img, page_url, diag=diag, hotlink_ok=info.get("image_source") == "store")
+    return keep_picture(img, page_url, diag=diag, hotlink_ok=True)
 
 
 def _save_image(name, ext, data):

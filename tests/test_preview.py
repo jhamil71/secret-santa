@@ -58,6 +58,17 @@ class Store(BaseHTTPRequestHandler):
             if "facebookexternalhit" in ua or "Twitterbot" in ua:
                 return self.send(200, page("/pics/saw.png"))
             return self.send(403, b"Access Denied")
+        if p.startswith("/render-only"):                    # a service that only succeeds when asked to use a real browser
+            if "prerender=true" in p:
+                return self.send(200, ('{"status":"success","data":{"title":"Apron","image":{"url":"%s/pics/saw.png"}}}'
+                                       % self.server.base).encode(), "application/json")
+            return self.send(200, b'{"status":"success","data":{"title":"Apron"}}', "application/json")
+        if p.startswith("/bee"):                            # stand-in for ScrapingBee (page or picture)
+            if "api_key=k123" not in p:
+                return self.send(401, b"no key")
+            if "pics" in p or "png" in p:
+                return self.send(200, PNG, "image/png")
+            return self.send(200, page("/pics/saw.png", title="Bee Page"))
         if p.startswith("/microlink"):                      # stand-in for the Microlink service
             if "blocked-for-them-too" in p:
                 return self.send(200, b'{"status":"fail","data":{}}', "application/json")
@@ -226,3 +237,24 @@ def test_picture_the_store_refuses_is_fetched_through_the_image_proxy(store, tmp
 def test_robot_check_page_is_not_mistaken_for_a_product(store):
     r = preview.fetch_preview(store + "/robot-check")
     assert r["ok"] is False and r["image"] is None and r["title"] is None and "robot check" in r["error"]
+
+
+def test_harder_fallbacks_for_stubborn_stores(store, monkeypatch, tmp_path):
+    monkeypatch.setattr(preview, "FALLBACKS_ENABLED", True)
+    monkeypatch.setattr(preview, "MICROLINK_API", store + "/render-only")
+    monkeypatch.setattr(preview, "JINA_READER", store + "/nothing/")
+    r = preview.fetch_preview(store + "/blocks-everyone")
+    assert r["image"] == store + "/pics/saw.png"
+    assert [a["as"] for a in r["attempts"]][3:] == ["microlink", "jina reader", "microlink (browser)"]
+    # the paid-per-use service is only used when a key is set
+    monkeypatch.setattr(preview, "MICROLINK_API", store + "/nothing")
+    monkeypatch.setattr(preview, "SCRAPINGBEE_API", store + "/bee")
+    assert "scrapingbee" not in [a["as"] for a in preview.fetch_preview(store + "/blocks-everyone")["attempts"]]
+    monkeypatch.setenv("SCRAPINGBEE_API_KEY", "k123")
+    r = preview.fetch_preview(store + "/blocks-everyone")
+    assert r["attempts"][-1]["as"] == "scrapingbee" and r["image"] == store + "/pics/saw.png" and r["title"] == "Bee Page"
+    # and it can fetch a picture that the picture's own server refuses
+    monkeypatch.setattr(preview, "IMAGE_PROXY", store + "/nothing")
+    notes = []
+    got = preview.cache_image(store + "/pics/guarded.png", str(tmp_path), diag=notes)
+    assert got and "picture saved via scrapingbee" in notes

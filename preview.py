@@ -37,10 +37,11 @@ MAX_REDIRECTS = 4
 # to keep gift links from ever being sent to another company.
 MICROLINK_API = "https://api.microlink.io/"
 JINA_READER = "https://r.jina.ai/"
+SCRAPINGBEE_API = "https://app.scrapingbee.com/api/v1/"   # optional paid-per-use service with real residential addresses
 IMAGE_PROXY = "https://wsrv.nl/"     # fetches a picture from its own servers and hands back a resized copy
 FALLBACKS_ENABLED = os.environ.get("LINK_PREVIEW_FALLBACKS", "1") != "0"
 ON_VERCEL = bool(os.environ.get("VERCEL"))
-TOTAL_BUDGET_SECONDS = int(os.environ.get("PREVIEW_BUDGET") or (12 if ON_VERCEL else 20))   # all attempts for one link
+TOTAL_BUDGET_SECONDS = int(os.environ.get("PREVIEW_BUDGET") or (25 if ON_VERCEL else 30))   # all attempts for one link
 IMAGE_BUDGET_SECONDS = 5 if ON_VERCEL else 12
 CURRENCY_SYMBOLS = {"USD": "$", "EUR": "€", "GBP": "£", "CAD": "CA$", "AUD": "A$"}
 
@@ -292,32 +293,41 @@ def _cache_via_proxy(image_url, dest_dir, store, diag):
         return None
     try:
         check_public_url(image_url)                      # never pass an internal address along
-        r = requests.get(IMAGE_PROXY, params={"url": image_url, "w": 700, "we": "", "output": "jpg", "q": 85},
-                         headers={"User-Agent": "FamilySecretSanta/1.0"}, timeout=(4, 10), stream=True)
-        data = r.raw.read(MAX_IMAGE_BYTES + 1, decode_content=True) if r.status_code == 200 else b""
-        r.close()
-    except (UnsafeURL, requests.RequestException) as e:
-        if diag is not None:
-            diag.append(f"picture proxy failed ({type(e).__name__})")
+    except UnsafeURL:
         return None
-    ext = _sniff_image(data)
-    if not (ext and MIN_IMAGE_BYTES <= len(data) <= MAX_IMAGE_BYTES):
+    tries = [("picture proxy", IMAGE_PROXY, {"url": image_url, "w": 700, "we": "", "output": "jpg", "q": 85})]
+    if os.environ.get("SCRAPINGBEE_API_KEY"):
+        tries.append(("scrapingbee", SCRAPINGBEE_API, {"api_key": os.environ["SCRAPINGBEE_API_KEY"], "url": image_url,
+                                                       "premium_proxy": "true", "country_code": "us"}))
+    for label, endpoint, params in tries:
+        try:
+            r = requests.get(endpoint, params=params, headers={"User-Agent": "FamilySecretSanta/1.0"},
+                             timeout=(4, 30), stream=True)
+            data = r.raw.read(MAX_IMAGE_BYTES + 1, decode_content=True) if r.status_code == 200 else b""
+            r.close()
+        except requests.RequestException as e:
+            if diag is not None:
+                diag.append(f"{label} failed ({type(e).__name__})")
+            continue
+        ext = _sniff_image(data)
+        if not (ext and MIN_IMAGE_BYTES <= len(data) <= MAX_IMAGE_BYTES):
+            if diag is not None:
+                diag.append(f"{label} answered {r.status_code} without a usable picture")
+            continue
+        name = f"{hashlib.sha1(data).hexdigest()}.{ext}"
+        if store:
+            store(name, ext, data)
+        else:
+            os.makedirs(dest_dir, exist_ok=True)
+            path = os.path.join(dest_dir, name)
+            if not os.path.exists(path):
+                with open(path + ".part", "wb") as f:
+                    f.write(data)
+                os.replace(path + ".part", path)
         if diag is not None:
-            diag.append(f"picture proxy answered {r.status_code} without a usable picture")
-        return None
-    name = f"{hashlib.sha1(data).hexdigest()}.{ext}"
-    if store:
-        store(name, ext, data)
-    else:
-        os.makedirs(dest_dir, exist_ok=True)
-        path = os.path.join(dest_dir, name)
-        if not os.path.exists(path):
-            with open(path + ".part", "wb") as f:
-                f.write(data)
-            os.replace(path + ".part", path)
-    if diag is not None:
-        diag.append("picture saved via picture proxy")
-    return f"/img/{name}"
+            diag.append(f"picture saved via {label}")
+        return f"/img/{name}"
+    return None
 
 
 def amazon_picture(url):
@@ -347,13 +357,16 @@ def _page_meta(url, ua, deadline):
     return parse_metadata(body, r.final_url), None, r.status_code
 
 
-def _microlink(url, deadline):
+def _microlink(url, deadline, render=False):
     """Microlink: returns title and picture for a link, fetched from their servers."""
     headers = {"Accept": "application/json", "User-Agent": "FamilySecretSanta/1.0"}
     if os.environ.get("MICROLINK_API_KEY"):
         headers["x-api-key"] = os.environ["MICROLINK_API_KEY"]
     left = max(deadline - time.time(), 1.0)
-    r = requests.get(MICROLINK_API, params={"url": url}, headers=headers, timeout=(4, min(9, left)))
+    params = {"url": url}
+    if render:
+        params["prerender"] = "true"                 # load the page in a real browser first
+    r = requests.get(MICROLINK_API, params=params, headers=headers, timeout=(4, min(20, left)))
     if r.status_code != 200:
         return {}, f"service answered {r.status_code}", r.status_code
     d = (r.json().get("data") or {})
@@ -361,11 +374,13 @@ def _microlink(url, deadline):
     return {"title": clean_title(d.get("title"), d.get("publisher"), url), "image": image}, None, r.status_code
 
 
-def _jina(url, deadline):
+def _jina(url, deadline, browser=False):
     """Jina Reader: loads the page in a real browser on their side and hands back the finished HTML."""
     headers = {"X-Return-Format": "html", "Accept": "text/html", "User-Agent": "FamilySecretSanta/1.0"}
+    if browser:
+        headers["X-Engine"] = "browser"              # slower, but runs the page's scripts like a real browser
     left = max(deadline - time.time(), 1.0)
-    r = requests.get(JINA_READER + url, headers=headers, timeout=(4, min(12, left)))
+    r = requests.get(JINA_READER + url, headers=headers, timeout=(4, min(25, left)))
     if r.status_code != 200:
         return {}, f"service answered {r.status_code}", r.status_code
     return parse_metadata(r.text[:MAX_PAGE_BYTES], url), None, r.status_code
@@ -374,7 +389,7 @@ def _jina(url, deadline):
 BLOCK_TITLES = ("access denied", "just a moment", "attention required", "robot or human", "pardon our interruption",
                 "are you a robot", "verify you are human", "security check", "request blocked", "captcha",
                 "you have been blocked", "reference #")
-BLOCK_IMAGE_HOSTS = ("akamai", "cloudflare", "captcha", "perimeterx", "datadome", "imperva", "incapsula")
+BLOCK_IMAGE_HOSTS = ("akamai", "edgesuite", "edgekey", "cloudflare", "captcha", "perimeterx", "datadome", "imperva", "incapsula")
 
 
 def looks_like_block_page(title, image_url):
@@ -382,6 +397,26 @@ def looks_like_block_page(title, image_url):
     t = (title or "").lower()
     host = site_name(image_url or "")
     return any(b in t for b in BLOCK_TITLES) or any(b in host or b in (image_url or "").lower() for b in BLOCK_IMAGE_HOSTS)
+
+
+def _scrapingbee(url, deadline):
+    """ScrapingBee (only when SCRAPINGBEE_API_KEY is set): fetches through ordinary home internet addresses."""
+    left = max(deadline - time.time(), 1.0)
+    r = requests.get(SCRAPINGBEE_API, params={"api_key": os.environ["SCRAPINGBEE_API_KEY"], "url": url,
+                                              "render_js": "true", "premium_proxy": "true", "country_code": "us"},
+                     timeout=(4, min(60, max(left, 20))))
+    if r.status_code != 200:
+        return {}, f"service answered {r.status_code}", r.status_code
+    return parse_metadata(r.text[:MAX_PAGE_BYTES], url), None, r.status_code
+
+
+def _fallback_services():
+    services = [("microlink", _microlink), ("jina reader", _jina),
+                ("microlink (browser)", lambda u, d: _microlink(u, d, render=True)),
+                ("jina reader (browser)", lambda u, d: _jina(u, d, browser=True))]
+    if os.environ.get("SCRAPINGBEE_API_KEY"):
+        services.append(("scrapingbee", _scrapingbee))
+    return services
 
 
 def fetch_preview(url):
@@ -415,7 +450,7 @@ def fetch_preview(url):
     if not out["image"] and amazon_picture(url):
         out["image"], out["image_source"] = amazon_picture(url), "store"
     if FALLBACKS_ENABLED and not out["image"]:
-        for name, fn in (("microlink", _microlink), ("jina reader", _jina)):
+        for name, fn in _fallback_services():
             if time.time() >= deadline:
                 break
             try:

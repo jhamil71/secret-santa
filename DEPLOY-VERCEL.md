@@ -49,6 +49,9 @@ That saves `backups/santa-<date>.db` containing everything, pictures included. D
 few weeks. (You can store it in Google Drive or Dropbox by hand. To restore, create a new Turso database and ask me for a
 restore script.)
 
+## Optional: a last resort for stubborn stores
+Some stores (Home Depot, Williams Sonoma and similar) block almost every automatic lookup. If a few gifts still have no picture after pressing **Check all**, you can add one more setting in Vercel, `SCRAPINGBEE_API_KEY`, from a ScrapingBee account (scrapingbee.com; it has a free trial, then costs money per lookup). The site only uses it after everything else fails, and each link is looked up once.
+
 ## Good to know
 - **Updating the site:** every time new code is pushed to GitHub, Vercel republishes it automatically.
 - **Slow first visit:** after a quiet spell the first page can take a second or two to wake up. After that it is quick.
