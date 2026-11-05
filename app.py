@@ -12,7 +12,7 @@ from flask import (Flask, abort, flash, g, jsonify, redirect, render_template,
 
 import dbconn
 from draw import find_assignment
-from preview import cache_image, fetch_preview, site_name
+from preview import cache_image, fetch_preview, looks_like_block_page, site_name
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 ON_VERCEL = bool(os.environ.get("VERCEL"))      # Vercel has no permanent disk: settings come from environment variables
@@ -93,7 +93,7 @@ CREATE TABLE IF NOT EXISTS items(
 CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT);
 CREATE TABLE IF NOT EXISTS images(name TEXT PRIMARY KEY, ctype TEXT NOT NULL, data BLOB NOT NULL);
 """
-SCHEMA_VERSION = "8"   # bump when the schema or DEFAULTS change; lets a cold start skip the setup below
+SCHEMA_VERSION = "9"   # bump when the schema or DEFAULTS change; lets a cold start skip the setup below
 DEFAULTS = {
     "year": str(datetime.now().year),
     "avoid_swaps": "1", "avoid_last": "1", "drawn_at": "",
@@ -129,6 +129,9 @@ def init_db():
             elif "purchased" in icols:
                 c.execute("UPDATE items SET bought_by=(SELECT 'p'||giver_id FROM assignments "
                           "WHERE receiver_id=items.person_id) WHERE purchased=1")
+        # Robot-check logos (Akamai and friends) that an earlier version saved as if they were gift pictures.
+        c.execute("UPDATE items SET image=NULL, image_checked=NULL WHERE image LIKE 'http%' AND "
+                  "(LOWER(image) LIKE '%akamai%' OR LOWER(image) LIKE '%cloudflare%' OR LOWER(image) LIKE '%captcha%')")
         for k, v in DEFAULTS.items():
             c.execute("INSERT OR IGNORE INTO settings(key, value) VALUES (?, ?)", (k, v))
         c.execute("INSERT OR REPLACE INTO settings(key, value) VALUES ('schema_v', ?)", (SCHEMA_VERSION,))
@@ -285,13 +288,29 @@ def inject_globals():
 app.jinja_env.filters["site"] = site_name
 
 
-def keep_picture(image_url, page_url=None, diag=None):
+def keep_picture(image_url, page_url=None, diag=None, hotlink_ok=False):
     """Save a copy of a gift picture on our own server, so it never depends on the store again.
-    If the copy can't be made, fall back to the store's own picture address."""
-    if not image_url or image_url.startswith("/img/"):
-        return image_url or None
-    return cache_image(image_url, IMG_DIR, referer=page_url, diag=diag,
-                       store=_save_image if dbconn.turso_configured() else None) or image_url
+    Returns our copy's address. If the copy can't be made: the store's own picture address when hotlink_ok,
+    otherwise nothing."""
+    if not image_url:
+        return None
+    if re.fullmatch(r"/img/[0-9a-f]{40}\.(jpg|png|gif|webp)", image_url):
+        return image_url
+    if not image_url.startswith("http"):
+        return None
+    cached = cache_image(image_url, IMG_DIR, referer=page_url, diag=diag,
+                         store=_save_image if dbconn.turso_configured() else None)
+    return cached or (image_url if hotlink_ok else None)
+
+
+def resolve_picture(info, page_url, diag=None):
+    """The picture to keep for a looked-up link: our own copy when we can make one. If we can't, the store's picture
+    address is used only when the store's own page gave it to us. An address that came from an outside service
+    is dropped, since it may be a robot-check logo and not the product."""
+    img = info.get("image")
+    if not img or looks_like_block_page(info.get("title"), img):
+        return None
+    return keep_picture(img, page_url, diag=diag, hotlink_ok=info.get("image_source") == "store")
 
 
 def _save_image(name, ext, data):
@@ -759,7 +778,9 @@ def preview(me):
     url = clean_url(request.args.get("url", ""))
     if not url:
         return jsonify(ok=False, error="That doesn't look like a web link.")
-    return jsonify(fetch_preview(url))
+    info = fetch_preview(url)
+    info["image"] = resolve_picture(info, url)
+    return jsonify(info)
 
 
 def _item_fields():
@@ -769,9 +790,7 @@ def _item_fields():
     if raw_url and not url:
         return None, "That link doesn't look right. It should start with http:// or https://"
     raw_img = request.form.get("image", "").strip()
-    image = clean_url(raw_img)
-    if raw_img and not image:
-        image = None
+    image = raw_img if re.fullmatch(r"/img/[0-9a-f]{40}\.(jpg|png|gif|webp)", raw_img) else clean_url(raw_img)
     return {
         "title": clean_text(request.form.get("title"), 200),
         "url": url,
@@ -792,7 +811,7 @@ def add_item(me):
         info = fetch_preview(f["url"])
         f["title"] = (info.get("title") or "")[:200]
         f["price"] = f["price"] or info.get("price")
-        f["image"] = f["image"] or info.get("image")
+        f["image"] = f["image"] or resolve_picture(info, f["url"])
     if not f["title"]:
         if f["url"]:
             f["title"] = site_name(f["url"])
@@ -802,7 +821,7 @@ def add_item(me):
     d = db()
     d.execute("INSERT INTO items(person_id, title, url, price, image, note) VALUES (?,?,?,?,?,?)",
               (me["id"], f["title"], f["url"], f["price"],
-               keep_picture(f["image"], f["url"]), f["note"]))
+               keep_picture(f["image"], f["url"], hotlink_ok=True), f["note"]))
     d.commit()
     flash("Added to your wish list.", "ok")
     return redirect(url_for("mine") + "#add")
@@ -845,7 +864,7 @@ def find_item_image(me, item_id):
     if not item["url"]:
         return jsonify(ok=False, image=None)
     info = fetch_preview(item["url"])
-    image = keep_picture(info.get("image"), item["url"]) if info.get("image") else None
+    image = resolve_picture(info, item["url"])
     price = item["price"] or info.get("price")
     d.execute("UPDATE items SET image=COALESCE(?, image), price=?, image_checked=? WHERE id=?",
               (image, price, int(time.time()), item_id))
@@ -883,10 +902,13 @@ def admin_check_picture(item_id):
     notes = []
     info = fetch_preview(item["url"])
     if info.get("image"):
-        notes.append("picture is hosted on " + site_name(info["image"]))
-    image = keep_picture(info.get("image"), item["url"], diag=notes) if info.get("image") else None
+        notes.append("picture is hosted on " + site_name(info["image"]) + f" (found via {info.get('image_source')})")
+    image = resolve_picture(info, item["url"], diag=notes)
     cached = bool(image and image.startswith("/img/"))
-    d.execute("UPDATE items SET image=COALESCE(?, image), price=COALESCE(price, ?), image_checked=? WHERE id=?",
+    if image is None and (item["image"] or "").startswith("/img/"):
+        image = item["image"]                    # a lookup that fails today never throws away a saved picture
+        cached = True
+    d.execute("UPDATE items SET image=?, price=COALESCE(price, ?), image_checked=? WHERE id=?",
               (image, info.get("price"), int(time.time()), item_id))
     d.commit()
     return jsonify(ok=cached, image=image, found=bool(info.get("image")), cached=cached,

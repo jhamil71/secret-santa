@@ -68,6 +68,8 @@ class Store(BaseHTTPRequestHandler):
             return self.send(200, page("/pics/saw.png", title="Jina Page - Shop"))
         if p.startswith("/wsrv"):                           # stand-in for the image proxy
             return self.send(200, PNG, "image/png")
+        if p == "/robot-check":                             # a 200 page that is really a robot check
+            return self.send(200, page("https://www.akamai.com/logo.png", title="Access Denied"))
         if p == "/blocks-everyone":
             return self.send(403, b"Access Denied")
         if p == "/no-image":
@@ -219,3 +221,8 @@ def test_picture_the_store_refuses_is_fetched_through_the_image_proxy(store, tmp
     assert "picture saved via picture proxy" in notes
     monkeypatch.setattr(preview, "FALLBACKS_ENABLED", False)
     assert preview.cache_image(store + "/pics/guarded.png", str(tmp_path / "other")) is None
+
+
+def test_robot_check_page_is_not_mistaken_for_a_product(store):
+    r = preview.fetch_preview(store + "/robot-check")
+    assert r["ok"] is False and r["image"] is None and r["title"] is None and "robot check" in r["error"]

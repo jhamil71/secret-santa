@@ -371,11 +371,24 @@ def _jina(url, deadline):
     return parse_metadata(r.text[:MAX_PAGE_BYTES], url), None, r.status_code
 
 
+BLOCK_TITLES = ("access denied", "just a moment", "attention required", "robot or human", "pardon our interruption",
+                "are you a robot", "verify you are human", "security check", "request blocked", "captcha",
+                "you have been blocked", "reference #")
+BLOCK_IMAGE_HOSTS = ("akamai", "cloudflare", "captcha", "perimeterx", "datadome", "imperva", "incapsula")
+
+
+def looks_like_block_page(title, image_url):
+    """True when what we got is a store's robot-check page rather than the product (its logo is not a gift picture)."""
+    t = (title or "").lower()
+    host = site_name(image_url or "")
+    return any(b in t for b in BLOCK_TITLES) or any(b in host or b in (image_url or "").lower() for b in BLOCK_IMAGE_HOSTS)
+
+
 def fetch_preview(url):
     """Return {ok, title, image, price, site, error}. Never raises. `image` is the store's own address
     for the picture; call cache_image() to keep a copy."""
     out = {"ok": False, "title": None, "image": None, "price": None, "site": site_name(url), "error": None,
-           "attempts": []}
+           "attempts": [], "image_source": None}
     deadline = time.time() + TOTAL_BUDGET_SECONDS
     problem = None
     for ua in AGENTS:
@@ -397,8 +410,10 @@ def fetch_preview(url):
         for k in ("title", "image", "price"):
             out[k] = out[k] or meta.get(k)
         if out["image"]:
+            out["image_source"] = "store"            # the store's own page told us
             break
-    out["image"] = out["image"] or amazon_picture(url)
+    if not out["image"] and amazon_picture(url):
+        out["image"], out["image_source"] = amazon_picture(url), "store"
     if FALLBACKS_ENABLED and not out["image"]:
         for name, fn in (("microlink", _microlink), ("jina reader", _jina)):
             if time.time() >= deadline:
@@ -413,7 +428,11 @@ def fetch_preview(url):
             for k in ("title", "image", "price"):
                 out[k] = out[k] or meta.get(k)
             if out["image"]:
+                out["image_source"] = "outside service"
                 break
+    if looks_like_block_page(out["title"], out["image"]):
+        out.update(title=None, image=None, price=None, image_source=None)
+        out["error"] = "The store showed a robot check instead of the product."
     out["ok"] = bool(out["title"] or out["image"] or out["price"])
     if not out["ok"]:
         out["error"] = problem or "No product details found."

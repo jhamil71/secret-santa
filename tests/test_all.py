@@ -179,7 +179,7 @@ def test_full_flow(client, monkeypatch):
 
     # Bob signs in with his phone number and adds a gift from just a link (preview stubbed)
     monkeypatch.setattr(app_module, "fetch_preview", lambda u: {
-        "ok": True, "title": "Cool Lamp", "image": "https://img.example/lamp.jpg", "price": "$45.00", "error": None})
+        "ok": True, "title": "Cool Lamp", "image": "https://img.example/lamp.jpg", "image_source": "store", "price": "$45.00", "error": None})
     bob = member(phone=phones["Bob"])
     post(bob, "/mine/items", url="https://shop.example/lamp", title="", price="", image="", note="warm white")
 
@@ -291,7 +291,7 @@ def test_public_wish_list_page(client, monkeypatch):
     d = rows()
     p = {r["name"]: r for r in d.execute("SELECT * FROM people")}
     monkeypatch.setattr(app_module, "fetch_preview", lambda u: {
-        "ok": True, "title": "Cool Lamp", "image": "https://img.example/lamp.jpg", "price": "$45.00", "error": None})
+        "ok": True, "title": "Cool Lamp", "image": "https://img.example/lamp.jpg", "image_source": "store", "price": "$45.00", "error": None})
     post(member(token=p["Bob"]["token"]), "/mine/items", url="https://shop.example/lamp", title="", price="", image="", note="warm white")
     post(client, "/admin/draw")
     item_id = d.execute("SELECT id FROM items").fetchone()[0]
@@ -656,3 +656,23 @@ def test_admin_picture_checker(client, monkeypatch):
     assert rows().execute("SELECT price FROM items").fetchone()[0] == "$9.00"
     # visitors who aren't the organizer can't use it
     assert app_module.app.test_client().get("/admin/pictures").status_code == 302
+
+
+def test_robot_check_pages_never_become_gift_pictures(client, monkeypatch):
+    import preview
+    # a store's robot-check logo and title are recognised, whichever service returned them
+    assert preview.looks_like_block_page("Access Denied", None)
+    assert preview.looks_like_block_page("Dewalt Saw", "https://www.akamai.com/logo.png")
+    assert not preview.looks_like_block_page("DEWALT Saw", "https://images.thdstatic.com/saw.jpg")
+
+    monkeypatch.setattr(app_module, "cache_image", lambda *a, **k: None)         # the picture can't be copied
+    with app_module.app.test_request_context():
+        resolve = app_module.resolve_picture
+        # from the store's own page: the store's picture address is kept (browsers can usually load it)
+        assert resolve({"image": "https://cdn.shop/a.jpg", "image_source": "store"}, "https://shop/p") == "https://cdn.shop/a.jpg"
+        # from an outside service and not copyable: dropped, rather than risk a wrong picture
+        assert resolve({"image": "https://cdn.shop/a.jpg", "image_source": "outside service"}, "https://shop/p") is None
+        # a robot-check logo is dropped either way
+        assert resolve({"image": "https://www.akamai.com/x.png", "image_source": "store"}, "https://shop/p") is None
+        # our own saved copy passes straight through
+        assert resolve({"image": "/img/" + "a" * 40 + ".png", "image_source": "outside service"}, "x") == "/img/" + "a" * 40 + ".png"
